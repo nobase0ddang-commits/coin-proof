@@ -47,4 +47,5 @@ Nesa AI × Blockchain Valley 해커톤 (Track 1 Private Input + Track 3 Verifiab
 ## 발표 자료 (`발표자료/` 폴더)
 - `CoinProof_발표자료.pdf` — 11장, 16:9. 어느 PC에서나 열어서 전체화면으로 발표 (인터넷 불필요)
 - `CoinProof_발표자료.html` — 크롬으로 열어 발표. ←→ 넘김, F 전체화면, N 발표자 노트 (글꼴은 인터넷 있을 때 Noto Sans KR, 없으면 맑은 고딕)
-- 말할 내용은 `발표대본.md`
+- `CoinProof_발표자료.pptx` — PowerPoint용 11장 (슬라이드는 이미지, 발표자 노트에 장별 멘트 포함). 글자 수정이 필요하면 Slides 원본에서 PPTX로 다시 받기
+- `CoinProof_발표대본.pdf` — 인쇄용 대본 (원문은 루트의 `발표대본.md`)
