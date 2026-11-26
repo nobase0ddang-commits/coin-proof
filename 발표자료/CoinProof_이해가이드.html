@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CoinProof 발표 공부 노트</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* 레이아웃: 폰 한 손 읽기용 단일 칼럼, 상단 목차 칩 → 섹션 카드 → 탭해서 펼치는 용어·질문 */
+:root{
+  --bg:#F4F5F8; --surface:#FFFFFF; --ink:#121A2E; --body:#3E4759; --mute:#6B7385;
+  --line:#DCE0EA; --blue:#3B5BDB; --blue-soft:#E8ECFB; --amber:#B7791F; --amber-soft:#FFF4DC;
+  --ok:#1F8A4C; --bad:#C2362F; --code:#EEF1F7;
+  --f-body:'Noto Sans KR','Malgun Gothic','Apple SD Gothic Neo',sans-serif;
+  --f-num:'JetBrains Mono',Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E1424; --surface:#161E33; --ink:#EEF1F8; --body:#C3CADB; --mute:#8D97AE;
+  --line:#2A3450; --blue:#8FA6FF; --blue-soft:#1F2A4D; --amber:#F0B44C; --amber-soft:#33290F;
+  --ok:#5FD08F; --bad:#FF8A80; --code:#1E2740; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E1424; --surface:#161E33; --ink:#EEF1F8; --body:#C3CADB; --mute:#8D97AE;
+  --line:#2A3450; --blue:#8FA6FF; --blue-soft:#1F2A4D; --amber:#F0B44C; --amber-soft:#33290F;
+  --ok:#5FD08F; --bad:#FF8A80; --code:#1E2740; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--body);font:16px/1.75 var(--f-body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 60px}
+.wrap{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+h1,h2,h3{color:var(--ink);text-wrap:balance;margin:0;line-height:1.35}
+h1{font-size:28px;font-weight:900}
+h2{font-size:21px;font-weight:900}
+h3{font-size:17px;font-weight:700}
+p{margin:0}
+b,strong{color:var(--ink)}
+.eyebrow{font-size:12px;font-weight:700;letter-spacing:.12em;color:var(--blue)}
+.lead{font-size:17px}
+.num{font-family:var(--f-num);font-variant-numeric:tabular-nums;color:var(--ink);font-weight:700}
+nav{display:flex;flex-wrap:wrap;gap:8px}
+nav a{font-size:13px;padding:6px 12px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--ink);text-decoration:none}
+nav a:focus-visible,summary:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+section{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.say{background:var(--blue-soft);border-radius:12px;padding:14px 16px;color:var(--ink);font-weight:500}
+.say::before{content:"이렇게 말하기";display:block;font-size:12px;font-weight:700;color:var(--blue);margin-bottom:4px}
+.tip{background:var(--amber-soft);border-radius:12px;padding:12px 16px;font-size:15px}
+.tip::before{content:"주의";display:block;font-size:12px;font-weight:700;color:var(--amber);margin-bottom:2px}
+ol.flow{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;counter-reset:f}
+ol.flow li{counter-increment:f;display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start}
+ol.flow li::before{content:counter(f);width:34px;height:34px;border-radius:50%;background:var(--blue);color:#fff;font:700 15px/34px var(--f-num);text-align:center}
+ol.flow li div{min-width:0}
+details{border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+details>summary{cursor:pointer;list-style:none;padding:12px 14px;font-weight:700;color:var(--ink);display:flex;justify-content:space-between;gap:10px}
+details>summary::-webkit-details-marker{display:none}
+details>summary::after{content:"＋";color:var(--blue);flex:none}
+details[open]>summary::after{content:"－"}
+details>div{padding:0 14px 14px;display:flex;flex-direction:column;gap:8px}
+.terms{display:flex;flex-direction:column;gap:8px}
+.terms small{color:var(--mute);font-weight:400}
+.nums{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.nums div{background:var(--bg);border-radius:12px;padding:12px}
+.nums .num{display:block;font-size:20px}
+.nums span{font-size:13px;color:var(--mute)}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:520px}
+th,td{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left;vertical-align:top}
+th{color:var(--mute);font-weight:700;font-size:12px}
+td:first-child{white-space:nowrap;color:var(--ink);font-weight:700}
+.chk{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.chk label{display:flex;gap:10px;align-items:flex-start;cursor:pointer}
+.chk input{margin-top:6px;width:18px;height:18px;accent-color:var(--blue);flex:none}
+.ok{color:var(--ok);font-weight:700}.bad{color:var(--bad);font-weight:700}
+.foot{font-size:13px;color:var(--mute);text-align:center}
+@media (min-width:600px){ .nums{grid-template-columns:repeat(4,minmax(0,1fr))} h1{font-size:34px} }
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+html{scroll-behavior:smooth}
+</style>
+</head><body>
+
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:10px">
+  <p class="eyebrow">NESA × BLOCKCHAIN VALLEY · 11/26 데모데이</p>
+  <h1>CoinProof 발표 공부 노트</h1>
+  <p class="lead">기술 몰라도 발표·질문 대응이 되도록, 비유 위주로 정리했습니다. 위에서부터 순서대로 읽으면 됩니다.</p>
+  <nav aria-label="목차">
+    <a href="#s1">30초 요약</a><a href="#s2">왜 필요?</a><a href="#s3">작동 원리</a><a href="#s4">용어 사전</a><a href="#s5">외울 숫자</a><a href="#s6">시연 순서</a><a href="#s7">예상 질문</a><a href="#s8">한계</a><a href="#s9">당일 점검</a>
+  </nav>
+</header>
+
+<section id="s1">
+  <p class="eyebrow">1 · 30초 요약</p>
+  <h2>한 문장으로: "코인 거래 내역은 안 보여 주고, 결과가 진짜라는 것만 증명"</h2>
+  <p>내 코인 거래 내역을 <b>내 컴퓨터 안에서만</b> 분석해서, 남에게는 <b>합계만 적힌 증명서</b>를 줍니다. 그 증명서가 가짜가 아니라는 건 <b>블록체인에 남긴 지문</b>으로 누구나 확인할 수 있습니다.</p>
+  <div class="say">은행에 통장 전체를 복사해 주는 대신, "잔액증명서"만 떼어 주는 것과 같습니다. 다만 그 증명서에 은행 도장 대신 블록체인 도장이 찍혀 있다고 보시면 됩니다.</div>
+</section>
+
+<section id="s2">
+  <p class="eyebrow">2 · 왜 필요한가</p>
+  <h2>코인 내역을 남에게 보여 줘야 하는 일이 지금도 있음</h2>
+  <ul style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px">
+    <li><b>자금출처 소명</b> — 코인으로 번 돈으로 집을 사거나 전세를 얻으면 "그 돈 어디서 났냐"를 증명해야 함</li>
+    <li><b>해외금융계좌 신고</b> — 바이낸스 같은 해외 거래소 잔고가 크면 지금도 신고 대상</li>
+    <li><b>2029년 코인 과세</b> — 원래 시작 예정이던 과세가 2029년으로 미뤄짐. 그때 손익 계산이 필요</li>
+  </ul>
+  <h3>지금 방식의 문제: 둘 중 하나를 포기</h3>
+  <ul style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px">
+    <li><b>통째로 넘기기</b> → 사생활 노출. 코인은 지갑 주소 하나만 알면 과거·미래 거래가 전부 보임 (블록체인은 누구나 조회 가능하기 때문)</li>
+    <li><b>엑셀로 정리해서 내기</b> → 숫자를 고쳐도 받는 쪽이 알 길이 없음 → 결국 원본을 다시 달라고 함</li>
+  </ul>
+  <div class="say">프라이버시를 지키면 신뢰가 없고, 신뢰를 얻으려면 프라이버시를 포기해야 하는 구조입니다. CoinProof는 둘 다 지킵니다.</div>
+</section>
+
+<section id="s3">
+  <p class="eyebrow">3 · 작동 원리</p>
+  <h2>4단계: 분석 → 증명서 → 지문 기록 → 대조</h2>
+  <ol class="flow">
+    <li><div><b>내 PC에서 분석</b><br>거래소에서 받은 거래 내역 파일(CSV)을 넣으면, 프로그램이 거래마다 "매수인지, 매도인지, 내 지갑끼리 옮긴 건지"를 분류하고 세금을 계산. <b>인터넷을 끊어도 돌아감.</b></div></li>
+    <li><div><b>요약 증명서 발급</b><br>손익 합계·예상 세액·거래 건수만 들어감. 지갑 주소·잔고·개별 거래는 <b>빠짐</b>.</div></li>
+    <li><div><b>지문(해시)만 블록체인에 기록</b><br>증명서 내용을 64자리 지문으로 바꿔서 그 지문만 블록체인에 올림. 지문으로는 원래 내용을 알아낼 수 없음.</div></li>
+    <li><div><b>받는 사람이 대조</b><br>은행이 받은 증명서로 지문을 다시 만들어 블록체인 기록과 비교. <span class="ok">같으면 진짜</span>, <span class="bad">다르면 누가 고친 것</span>.</div></li>
+  </ol>
+  <div class="tip">"AI가 세금을 계산한다"고 말하지 마세요. 계산은 정해진 규칙으로 하고, AI는 <b>애매한 거래를 분류하고 사람에게 물어보는</b> 역할입니다.</div>
+</section>
+
+<section id="s4">
+  <p class="eyebrow">4 · 용어 사전</p>
+  <h2>탭하면 펼쳐짐</h2>
+  <div class="terms">
+    <details><summary>해시 (Hash, 지문) <small>가장 중요</small></summary><div>
+      <p>어떤 내용이든 넣으면 <b>64자리 문자열</b>이 나오는 계산. 사람 지문처럼 내용마다 다름.</p>
+      <p>특징 ① 쉼표 하나만 바뀌어도 완전히 다른 값 ② 지문을 보고 원래 내용을 거꾸로 알아낼 수 없음.</p>
+      <p>그래서 "내용은 숨기고, 바뀌었는지만 확인"하는 데 씀. 앱에서는 SHA-256이라는 표준 방식을 사용.</p>
+    </div></details>
+    <details><summary>블록체인</summary><div>
+      <p>여러 사람이 똑같이 나눠 가진 <b>고칠 수 없는 공용 장부</b>. 한번 적으면 적은 사람도, 우리 회사도 못 고침.</p>
+      <p>그래서 "언제 이 지문이 기록됐다"는 걸 제3자 공증처럼 쓸 수 있음.</p>
+    </div></details>
+    <details><summary>데모 체인 vs Sepolia</summary><div>
+      <p><b>데모 체인</b>: 시연용으로 브라우저 안에 만든 간이 블록체인. 인터넷 없이 보여 주기 위함.</p>
+      <p><b>Sepolia</b>: 이더리움의 공식 테스트용 블록체인(진짜 돈 아님). MetaMask 지갑이 있으면 실제로 여기에 기록 가능.</p>
+    </div></details>
+    <details><summary>머클 루트 (묶음 지문)</summary><div>
+      <p>거래 18건 각각의 지문을 둘씩 묶고 또 묶어서 만든 <b>최종 지문 하나</b>. 증명서에 들어감.</p>
+      <p>세무사처럼 상세 내역까지 받는 사람은, 거래 한 줄만 바뀌어도 이 묶음 지문이 달라져서 바로 알 수 있음.</p>
+    </div></details>
+    <details><summary>로컬 처리 / 로컬 AI</summary><div>
+      <p><b>로컬</b> = 내 컴퓨터 안. 서버에 올리지 않는다는 뜻. 화면 오른쪽 위 "외부로 나간 요청 0건"이 그 증거.</p>
+      <p><b>로컬 AI</b> = 내 PC에 설치하는 AI(Ollama라는 프로그램). 있으면 "AI 의견" 버튼이 동작하고, 없으면 정해진 규칙(규칙 엔진)으로 분류. 시연 노트북엔 없어도 시연은 똑같이 됨.</p>
+    </div></details>
+    <details><summary>본인 이체 (짝 맞추기)</summary><div>
+      <p>업비트에서 출금하고 18분 뒤 바이낸스에 거의 같은 양이 입금되면 → 같은 사람이 옮긴 것. <b>판 게 아니라 옮긴 것이므로 세금 대상 아님</b>.</p>
+      <p>수량이 조금 다른 건(0.5 → 0.4995) 송금 수수료 때문.</p>
+    </div></details>
+    <details><summary>이동평균법 / 선입선출법</summary><div>
+      <p>코인을 여러 번 나눠 샀을 때 "판 코인을 얼마에 산 걸로 칠지" 정하는 방법.</p>
+      <p><b>이동평균</b>: 산 가격을 평균 냄 (국내 거래소). <b>선입선출</b>: 먼저 산 것부터 판 걸로 봄 (해외 거래소·개인 지갑).</p>
+    </div></details>
+    <details><summary>기본공제 250만 원 · 세율 22%</summary><div>
+      <p>예정된 코인 과세 규칙: 1년 수익에서 250만 원을 빼고 나머지의 22%(지방세 포함)를 세금으로. 앱은 이 기준으로 "예상" 세액을 보여 줌.</p>
+    </div></details>
+    <details><summary>영지식증명 (ZK) <small>향후 계획</small></summary><div>
+      <p>내용을 하나도 안 보여 주고 "이 조건이 맞다"만 증명하는 기술. 예: 금액은 숨기고 "손익이 1천만 원 이하"라는 사실만 증명.</p>
+      <p>지금 버전엔 없음. 다음 단계 목표로만 말하기.</p>
+    </div></details>
+    <details><summary>CSV</summary><div>
+      <p>엑셀로 열리는 단순한 표 파일. 거래소 사이트에서 "거래 내역 다운로드"하면 받을 수 있는 형식.</p>
+    </div></details>
+    <details><summary>Track 1 · Track 3</summary><div>
+      <p><b>Track 1 (Private Input)</b>: 민감한 데이터를 밖으로 안 내보내고 AI·계산에 쓰기 → 우리의 "내 PC에서만 분석".</p>
+      <p><b>Track 3 (Verifiable AI)</b>: 결과가 조작되지 않았음을 검증 가능하게 → 우리의 "해시 온체인 기록".</p>
+    </div></details>
+  </div>
+</section>
+
+<section id="s5">
+  <p class="eyebrow">5 · 외울 숫자</p>
+  <h2>발표·질문에서 나오는 숫자</h2>
+  <div class="nums">
+    <div><span class="num">18건</span><span>샘플 거래 (업비트+바이낸스, 가짜 데이터)</span></div>
+    <div><span class="num">0건</span><span>외부로 나간 요청</span></div>
+    <div><span class="num">770,214원</span><span>처음 예상 세액</span></div>
+    <div><span class="num">477,928원</span><span>13번 XRP 확인 후 세액</span></div>
+    <div><span class="num">64자리</span><span>체인에 올라가는 지문 길이</span></div>
+    <div><span class="num">18분</span><span>업비트 출금 → 바이낸스 입금 간격</span></div>
+    <div><span class="num">250만·22%</span><span>기본공제·세율</span></div>
+    <div><span class="num">2029년</span><span>코인 과세 시작(유예)</span></div>
+  </div>
+  <div class="tip">세액이 왜 바뀌나: 13번 XRP 500개는 출처를 몰라 "공짜로 받은 것(산 값 0원)"으로 봤다가, 사용자가 "다른 곳에서 갖고 있던 걸 옮겼다"고 확인하면 그날 시세로 산 값을 인정 → 이익이 줄어 세금도 줄어듦.</div>
+</section>
+
+<section id="s6">
+  <p class="eyebrow">6 · 시연 순서</p>
+  <h2>버튼 7번, 각 장면이 증명하는 것</h2>
+  <div class="tbl"><table>
+    <tr><th>순서</th><th>누르는 것</th><th>보여 주는 것</th></tr>
+    <tr><td>①</td><td>샘플 내역 불러오기</td><td>18건 분석했는데 외부 요청 0건 → 내 PC에서만 처리</td></tr>
+    <tr><td>②</td><td>(5·6번 줄 가리키기)</td><td>출금·입금 짝 맞춰 본인 이체로 판단 → 세금 대상 아님</td></tr>
+    <tr><td>③</td><td>13번 노란 줄 → "외부 보유분 이전"</td><td>애매한 건 사람에게 묻고, 세액 77만 → 48만 즉시 반영</td></tr>
+    <tr><td>④</td><td>증명서 만들기</td><td>합계만 있음. 지갑 주소·잔고·개별 거래 없음</td></tr>
+    <tr><td>⑤</td><td>데모 체인에 기록</td><td>올라가는 건 64자리 지문뿐</td></tr>
+    <tr><td>⑥</td><td>② 탭 → 방금 발급한 증명서 불러오기</td><td>은행 입장: 지문 다시 계산 → <span class="ok">✅ 일치</span></td></tr>
+    <tr><td>⑦</td><td>위조 시연 버튼</td><td>손익 절반으로 고치면 → <span class="bad">❌ 불일치</span></td></tr>
+  </table></div>
+  <p>자막이 들어간 녹화본이 GitHub <b>발표자료/CoinProof_시연영상.webm</b>에 있음. 라이브 시연이 막히면 이걸 틀면 됨.</p>
+</section>
+
+<section id="s7">
+  <p class="eyebrow">7 · 예상 질문</p>
+  <h2>쉬운 말 답변</h2>
+  <div class="terms">
+    <details><summary>Q. 지문만으로 계산이 맞는지는 어떻게 알아요?</summary><div>
+      <p>지문은 "발급 후에 바뀌지 않았다"를 보장하는 장치입니다. 계산 규칙과 프로그램 버전이 증명서에 적혀 있어서, 같은 내역이면 누구나 같은 결과를 다시 낼 수 있습니다. 계산 자체가 맞다는 증명은 다음 단계(영지식증명) 목표입니다.</p>
+    </div></details>
+    <details><summary>Q. 처음 CSV 파일부터 조작하면요?</summary><div>
+      <p>맞습니다, 지금 버전의 한계입니다. 거래소 API에서 원본을 직접 받아오는 연동을 다음 단계에 넣었습니다.</p>
+      <p style="color:var(--mute)">→ 인정하고 넘어가는 게 가장 좋은 답. 우기지 않기.</p>
+    </div></details>
+    <details><summary>Q. 왜 꼭 블록체인이어야 해요? 서버에 저장하면 안 되나요?</summary><div>
+      <p>서버에 두면 서버 주인을 믿어야 합니다. 블록체인에 남기면 발급한 사람도, 저희 회사도 나중에 못 고칩니다. 제3자 없는 공증입니다.</p>
+    </div></details>
+    <details><summary>Q. AI가 틀리게 분류하면요?</summary><div>
+      <p>확신이 낮은 거래는 노란색으로 표시하고 사람에게 묻습니다. AI는 근거를 보여 주고 최종 결정은 사용자가 합니다. 시연의 13번 줄이 그 예입니다.</p>
+    </div></details>
+    <details><summary>Q. 과세는 2029년인데 지금 왜 필요해요?</summary><div>
+      <p>자금출처 소명과 해외금융계좌 신고는 지금도 필요합니다. 그리고 2029년 전에 조작 없는 기록을 미리 쌓아 두는 것 자체가 가치입니다.</p>
+    </div></details>
+    <details><summary>Q. 비슷한 서비스 있지 않아요?</summary><div>
+      <p>Koinly·CoinTracker는 내역을 서버에 올려야 하고, rotki는 내 PC에서 돌지만 남에게 증명하는 기능이 없습니다. 국내 크립토택스는 과세 유예로 계산을 멈췄습니다. 저희는 계산기가 아니라 <b>받는 사람이 믿을 수 있는 증명서</b>라는 점이 다릅니다.</p>
+    </div></details>
+    <details><summary>Q. 시연 데이터는 진짜 거래예요?</summary><div>
+      <p>아니요, 업비트·바이낸스 형식으로 만든 가상 데이터 18건입니다. 실제 거래소 파일도 같은 형식으로 넣으면 동작합니다.</p>
+    </div></details>
+    <details><summary>Q. 세금 계산이 실제 세법이랑 똑같아요?</summary><div>
+      <p>시연용으로 단순화했습니다. 과세 지침이 확정되면 규칙을 갱신하는 게 로드맵에 있습니다. "예상 세액"이라고 표시하는 이유입니다.</p>
+    </div></details>
+    <details><summary>Q. 모르는 질문이 나오면?</summary><div>
+      <p>"좋은 질문입니다. 지금 버전에서는 거기까지 다루지 않았고, 다음 단계에서 검토하겠습니다." 후 다음 질문으로. 기술 질문은 팀원에게 넘겨도 됨.</p>
+    </div></details>
+  </div>
+</section>
+
+<section id="s8">
+  <p class="eyebrow">8 · 솔직한 한계</p>
+  <h2>과장하면 안 되는 부분</h2>
+  <ul style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px">
+    <li>세금 계산은 <b>시연용 단순화</b> (실제 신고용 아님)</li>
+    <li>원본 CSV 자체의 조작은 못 막음</li>
+    <li>시연 노트북엔 로컬 AI가 없으면 규칙 엔진으로 동작</li>
+    <li>"영지식증명"은 <b>아직 구현 안 함</b>, 향후 계획</li>
+    <li>데모 체인은 브라우저 안의 간이 장부, 실제 체인은 Sepolia 테스트넷(선택)</li>
+  </ul>
+</section>
+
+<section id="s9">
+  <p class="eyebrow">9 · 당일 점검</p>
+  <h2>행사장 도착 후 (체크해 두면 이 폰에 기억됨)</h2>
+  <ul class="chk" id="chkList">
+    <li><label><input type="checkbox" id="c1">노트북에서 GitHub → Code → Download ZIP 받아 압축 풀기</label></li>
+    <li><label><input type="checkbox" id="c2">시연앱_실행.cmd 실행 → 브라우저 화면 확인</label></li>
+    <li><label><input type="checkbox" id="c3">③ 체인 기록 탭 → 데모 체인 초기화</label></li>
+    <li><label><input type="checkbox" id="c4">발표자료 PDF(또는 PPTX) 열어 두기</label></li>
+    <li><label><input type="checkbox" id="c5">시연영상.webm 한 번 재생해 보기 (예비용)</label></li>
+    <li><label><input type="checkbox" id="c6">와이파이 끄기 → 앱 위쪽 "인터넷 끊김" 표시 확인</label></li>
+    <li><label><input type="checkbox" id="c7">시연 담당과 버튼 7개 순서 맞추기</label></li>
+  </ul>
+</section>
+
+<p class="foot">팀 BV Research · 강병훈 · 양예준 · 김주현 · 조경찬</p>
+</div>
+
+<script>
+(function(){
+  var KEY='coinproof-guide-checks';
+  var saved={}; try{ saved=JSON.parse(localStorage.getItem(KEY)||'{}')||{}; }catch(e){}
+  document.querySelectorAll('#chkList input').forEach(function(cb){
+    cb.checked=!!saved[cb.id];
+    cb.addEventListener('change',function(){ saved[cb.id]=cb.checked; try{ localStorage.setItem(KEY,JSON.stringify(saved)); }catch(e){} });
+  });
+})();
+</script>
+</body></html>
