@@ -159,6 +159,12 @@ textarea{width:100%;min-height:260px;font-family:var(--mono);font-size:12.5px;bo
         <button class="b" id="btnDlDetail">상세 내역 저장 (.json)</button>
       </div>
       <div id="recordOut" class="note"></div>
+      <div id="zkBox" style="margin-top:20px;border-top:1px dashed var(--line);padding-top:16px">
+        <div style="font-weight:800">🔒 영지식 범위 증명서 <span class="sub">금액은 숨기고 "기준 이하"만 증명</span></div>
+        <p class="desc" style="margin:6px 0 10px">손익 금액 대신 <b>잠긴 상자(커밋먼트)</b>와 수학적 증명만 넣습니다. 받는 사람은 실제 금액을 모른 채 "손익 ≤ 기준 금액"이 참인지만 확인합니다. 거짓 주장(기준 초과)은 증명 자체가 만들어지지 않습니다.</p>
+        <div class="row"><label class="f">기준 금액 (원)<input type="text" id="zkT" value="10,000,000"></label><button class="b p" id="btnZk" style="align-self:flex-end">범위 증명서 만들기</button></div>
+        <div id="zkOut" class="note" style="margin-top:10px"></div>
+      </div>
     </div>
   </section>
 </div>
@@ -247,6 +253,79 @@ function merkleRoot(leaves){
   while(lv.length>1){ const nx=[]; for(let i=0;i<lv.length;i+=2) nx.push(sha256(lv[i]+(lv[i+1]??lv[i]))); lv=nx; }
   return lv[0];
 }
+
+/* ---------- 영지식 범위 증명 (외부 라이브러리 없이) ----------
+   주장: "양도손익 v ≤ 기준 T" — v는 공개하지 않음
+   방식: Pedersen 커밋먼트 C = g^v·h^r (RFC 3526 2048-bit MODP 그룹의 소수 위수 부분군)
+         x = T − v 를 비트로 쪼개 비트마다 "0 또는 1"임을 Σ-프로토콜 OR 증명(CDS)으로 보이고,
+         Fiat–Shamir 해시로 비대화식으로 만듦. Π C_i^(2^i) = g^T·C^(−1) 로 x 와 C 를 연결.
+   검증자는 v·r 을 몰라도 "0 ≤ T − v < 2^n" 만 확인할 수 있음. */
+const ZK = (() => {
+  const P = BigInt('0xffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea63b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f24117c4b1fe649286651ece45b3dc2007cb8a163bf0598da48361c55d39a69163fa8fd24cf5f83655d23dca3ad961c62f356208552bb9ed529077096966d670c354e4abc9804f1746c08ca18217c32905e462e36ce3be39e772c180e86039b2783a2ec07a28fb5c55df06f4c52c9de2bcbf6955817183995497cea956ae515d2261898fa051015728e5a8aacaa68ffffffffffffffff');
+  const Q = (P - 1n) / 2n, G = 4n, NBITS = 32, M256 = 1n << 256n;
+  const mod = (a, m) => ((a % m) + m) % m;
+  const pw = (b, e, m = P) => { // 4비트 고정 창 거듭제곱
+    b = mod(b, m); if (e === 0n) return 1n % m;
+    const t = [1n, b]; for (let i = 2; i < 16; i++) t.push(t[i - 1] * b % m);
+    const hex = e.toString(16); let r = 1n;
+    for (const ch of hex) { r = r * r % m; r = r * r % m; r = r * r % m; r = r * r % m; const d = parseInt(ch, 16); if (d) r = r * t[d] % m; }
+    return r;
+  };
+  const inv = (a, m = P) => { let [o, r] = [mod(a, m), m], [s0, s1] = [1n, 0n]; while (r) { const k = o / r; [o, r] = [r, o - k * r]; [s0, s1] = [s1, s0 - k * s1]; } if (o !== 1n) throw new Error('역원 없음'); return mod(s0, m); };
+  const mul = (a, b) => a * b % P;
+  const hx = x => x.toString(16), bi = s => BigInt('0x' + s);
+  const rnd = bytes => { const u = new Uint8Array(bytes); crypto.getRandomValues(u); return BigInt('0x' + [...u].map(b => b.toString(16).padStart(2, '0')).join('')); };
+  const randQ = () => rnd(288) % Q;          // 2304비트 → mod Q (치우침 무시 가능)
+  const rand256 = () => rnd(32);
+  const H = (...xs) => BigInt('0x' + sha256(xs.join('|')));  // 256비트 챌린지
+  // h: g와의 이산로그 관계를 아무도 모르도록 해시에서 유도 (제곱 → 위수 Q 부분군)
+  const Hh = (() => { let s = ''; for (let i = 0; s.length < 600; i++) s += sha256('CoinProof Pedersen h v1:' + i); const x = bi(s.slice(0, 600)) % P; return x * x % P; })();
+  const Ginv = inv(G);
+  const inGroup = x => x > 1n && x < P && pw(x, Q) === 1n;
+  const commit = (v, r) => mul(pw(G, mod(v, Q)), pw(Hh, r));
+  const tick = () => new Promise(r => setTimeout(r, 0));
+
+  async function proveLE(v, r, T, ctx, onStep) {
+    const x = T - v; if (x < 0n || x >= (1n << BigInt(NBITS))) return null;   // 거짓 주장은 증명 불가
+    const C = commit(v, r), rho = mod(-r, Q);
+    const rs = []; let acc = 0n;
+    for (let i = 0; i < NBITS - 1; i++) { const ri = randQ(); rs.push(ri); acc = mod(acc + ri * (1n << BigInt(i)), Q); }
+    rs.push(mod((rho - acc) * inv((1n << BigInt(NBITS - 1)) % Q, Q), Q));
+    const bits = [];
+    for (let i = 0; i < NBITS; i++) {
+      const b = Number((x >> BigInt(i)) & 1n), ri = rs[i];
+      const Ci = mul(b ? G : 1n, pw(Hh, ri)), Y = [Ci, mul(Ci, Ginv)];
+      const s = 1 - b, cs = rand256(), zs = randQ(), k = randQ();
+      const A = []; A[s] = mul(pw(Hh, zs), inv(pw(Y[s], cs))); A[b] = pw(Hh, k);
+      const c = H(ctx, i, hx(Ci), hx(A[0]), hx(A[1])), cb = c ^ cs, zb = mod(k + cb * ri, Q);
+      const cc = [], zz = []; cc[s] = cs; zz[s] = zs; cc[b] = cb; zz[b] = zb;
+      bits.push({ C: hx(Ci), c0: hx(cc[0]), c1: hx(cc[1]), z0: hx(zz[0]), z1: hx(zz[1]) });
+      if (onStep) { onStep(i + 1, NBITS); await tick(); }
+    }
+    return { C: hx(C), proof: { 방식: 'Pedersen 커밋 + 비트별 OR 증명(CDS) + Fiat-Shamir', 그룹: 'RFC 3526 2048-bit MODP, g=4', 비트수: NBITS, 비트: bits } };
+  }
+
+  async function verifyLE(Chex, T, proof, ctx, onStep) {
+    try {
+      const C = bi(Chex); if (!inGroup(C)) return { ok: false, why: '커밋먼트가 올바른 그룹 원소가 아님' };
+      if (!proof || proof.비트수 !== NBITS || !Array.isArray(proof.비트) || proof.비트.length !== NBITS) return { ok: false, why: '증명 형식이 다름' };
+      const D = mul(pw(G, mod(T, Q)), inv(C)); let prod = 1n;
+      for (let i = 0; i < NBITS; i++) {
+        const e = proof.비트[i], Ci = bi(e.C), c0 = bi(e.c0), c1 = bi(e.c1), z0 = bi(e.z0), z1 = bi(e.z1);
+        if (!inGroup(Ci)) return { ok: false, why: `${i}번째 비트 커밋먼트가 그룹 원소가 아님` };
+        if (c0 >= M256 || c1 >= M256 || z0 >= Q || z1 >= Q) return { ok: false, why: `${i}번째 비트 값 범위 오류` };
+        const Y0 = Ci, Y1 = mul(Ci, Ginv);
+        const A0 = mul(pw(Hh, z0), inv(pw(Y0, c0))), A1 = mul(pw(Hh, z1), inv(pw(Y1, c1)));
+        if ((c0 ^ c1) !== H(ctx, i, hx(Ci), hx(A0), hx(A1))) return { ok: false, why: `${i}번째 비트가 0/1임을 증명하지 못함` };
+        prod = mul(prod, pw(Ci, 1n << BigInt(i)));
+        if (onStep) { onStep(i + 1, NBITS); await tick(); }
+      }
+      if (prod !== D) return { ok: false, why: '비트 묶음이 커밋먼트·기준 금액과 맞지 않음' };
+      return { ok: true };
+    } catch (e) { return { ok: false, why: '증명을 읽을 수 없음: ' + e.message }; }
+  }
+  return { proveLE, verifyLE, commit, randQ, NBITS, hx, bi };
+})();
 
 /* ---------- 샘플 데이터 ---------- */
 const SAMPLE_CSV = `일시,거래소,구분,원본유형,코인,수량,단가(원),수수료(원),상대방(주소·메모)
@@ -458,7 +537,7 @@ function issue(){
     <dt>본인 확인 필요</dt><dd>${s.flagged}건</dd><dt>발급 시각</dt><dd>${new Date(CERT.발급시각).toLocaleString('ko-KR')}</dd>
     <dt>들어가지 않은 것</dt><dd>지갑 주소, 거래소별 잔고, 개별 거래 내역</dd></dl>`;
   $('certHash').textContent = CERT_HASH; $('merkleRoot').textContent = CERT.상세내역_머클루트;
-  $('issueOut').classList.remove('hidden'); $('recordOut').textContent='';
+  $('issueOut').classList.remove('hidden'); $('recordOut').textContent=''; $('zkOut').innerHTML=''; ZK_CERT=null;
   $('btnRecordSepolia').disabled = !window.ethereum;
   if (!window.ethereum) $('btnRecordSepolia').title='MetaMask가 없으면 데모 체인을 쓰세요';
 }
@@ -467,13 +546,14 @@ function issue(){
 const CHAIN_KEY='coinproof_chain_v1';
 const getChain = () => { try { return JSON.parse(localStorage.getItem(CHAIN_KEY))||[]; } catch { return []; } };
 const setChain = c => { try { localStorage.setItem(CHAIN_KEY, JSON.stringify(c)); } catch {} };
-function recordDemo(){
+function recordDemo(){ recordHash(CERT_HASH, $('recordOut')); }
+function recordHash(hash, outEl){
   const c=getChain();
-  if (c.some(b=>b.certHash===CERT_HASH)){ $('recordOut').textContent='이미 기록된 증명서입니다.'; return; }
+  if (c.some(b=>b.certHash===hash)){ outEl.textContent='이미 기록된 증명서입니다.'; return; }
   const prev = c.length ? c[c.length-1].blockHash : '0'.repeat(64);
-  const b = { height:c.length+1, time:new Date().toISOString(), certHash:CERT_HASH, prev, network:'demo' };
+  const b = { height:c.length+1, time:new Date().toISOString(), certHash:hash, prev, network:'demo' };
   b.blockHash = sha256(canon(b)); c.push(b); setChain(c);
-  $('recordOut').innerHTML = `✅ 데모 체인 블록 <b>#${b.height}</b>에 기록했습니다. 올라간 것은 지문 64자리뿐입니다. <a href="#" onclick="switchTab('chain');return false">기록 보기</a>`;
+  outEl.innerHTML = `✅ 데모 체인 블록 <b>#${b.height}</b>에 기록했습니다. 올라간 것은 지문 64자리뿐입니다. <a href="#" onclick="switchTab('chain');return false">기록 보기</a>`;
   renderLedger();
 }
 async function recordSepolia(){
@@ -495,11 +575,53 @@ function renderLedger(){
       : `<tr><td colspan="5" style="font-family:inherit;color:var(--muted)">아직 기록이 없습니다.</td></tr>`);
 }
 
+/* ---------- 영지식 범위 증명서 발급 ---------- */
+let ZK_CERT=null, ZK_HASH=null, ZK_OPEN=null;
+const zkHead = o => { const h={...o}; delete h.범위증명; delete h.손익_커밋먼트; delete h.들어가지_않은_것; return h; };
+const zkCtx = (head, C) => sha256(canon({...head, 손익_커밋먼트:C}));
+async function issueZK(){
+  const out=$('zkOut'), btn=$('btnZk');
+  if (!SUMMARY) return;
+  const digits=($('zkT').value||'').replace(/[^0-9]/g,'');
+  if (!digits){ out.textContent='기준 금액을 숫자로 입력하세요.'; return; }
+  const T=BigInt(digits), v=BigInt(SUMMARY.gain), r=ZK.randQ();
+  const head={ 문서:'CoinProof 손익 범위 증명서 (영지식)', 버전:1, 대상연도:SUMMARY.year, 제출처:$('purpose').value,
+    발급시각:new Date().toISOString(), 주장:`양도손익 ≤ ${fmt(Number(T))}원`, 기준금액:Number(T) };
+  const C=ZK.hx(ZK.commit(v,r)), t0=performance.now();
+  btn.disabled=true; out.textContent='증명 만드는 중…';
+  const res=await ZK.proveLE(v, r, T, zkCtx(head,C), (i,n)=>{ out.textContent=`증명 만드는 중… 비트 ${i}/${n}`; });
+  btn.disabled=false;
+  if (!res){ ZK_CERT=null; out.innerHTML=`<div class="result bad"><b>❌ 증명을 만들 수 없습니다</b>실제 손익이 기준 금액보다 큽니다. 거짓 주장은 수학적으로 증명이 만들어지지 않습니다.</div>`; return; }
+  ZK_CERT={...head, 손익_커밋먼트:C, 범위증명:res.proof, 들어가지_않은_것:'손익 금액, 세액, 지갑 주소, 개별 거래'};
+  ZK_HASH=sha256(canon(ZK_CERT)); ZK_OPEN={양도손익:SUMMARY.gain, 비밀값:ZK.hx(r)};
+  out.innerHTML=`<div class="result ok"><b>✅ 범위 증명서 발급 (${((performance.now()-t0)/1000).toFixed(1)}초)</b>주장: <b>${esc(ZK_CERT.주장)}</b> · 실제 손익 금액은 증명서에 없음
+    <div class="detail">손익 커밋먼트(잠긴 상자): <span class="hash">${C.slice(0,48)}…</span><br>비트 ${ZK.NBITS}개 각각 "0 또는 1" 증명 · 증명 크기 ${Math.round(JSON.stringify(res.proof).length/1024)}KB<br>범위 증명서 지문: <span class="hash">${ZK_HASH}</span></div></div>
+    <div class="row" style="margin-top:10px"><button class="b p" id="btnZkRecord">데모 체인에 기록</button><button class="b" id="btnZkUse">② 탭에서 검증해 보기</button><button class="b" id="btnZkDl">범위 증명서 저장 (.json)</button></div><div id="zkRecOut" class="note"></div>`;
+  $('btnZkRecord').onclick=()=>recordHash(ZK_HASH, $('zkRecOut'));
+  $('btnZkDl').onclick=()=>dl(ZK_CERT, `CoinProof_범위증명서_${SUMMARY.year}.json`);
+  $('btnZkUse').onclick=()=>{ switchTab('verify'); $('verifyText').value=JSON.stringify(ZK_CERT,null,2); verify(); };
+}
+async function verifyZK(obj, out){
+  const h=sha256(canon(obj)), rec=getChain().find(b=>b.certHash===h);
+  out.innerHTML='<div class="note">영지식 증명 검증 중…</div>';
+  let T; try { T=BigInt(obj.기준금액); } catch { T=-1n; }
+  const r = T<0n ? {ok:false, why:'기준 금액을 읽을 수 없음'} : await ZK.verifyLE(String(obj.손익_커밋먼트||''), T, obj.범위증명, zkCtx(zkHead(obj), obj.손익_커밋먼트),
+    (i,n)=>{ out.innerHTML=`<div class="note">영지식 증명 검증 중… 비트 ${i}/${n}</div>`; });
+  let html = r.ok
+    ? `<div class="result ok"><b>✅ 수학적으로 참: ${esc(obj.주장)}</b>실제 손익 금액은 모른 채로 확인했습니다. 비트 ${ZK.NBITS}개가 모두 0 또는 1이고, 그 합이 "기준 − 손익 ≥ 0"과 맞습니다.</div>`
+    : `<div class="result bad"><b>❌ 증명이 성립하지 않음</b>${esc(r.why)}. 주장이나 증명 내용이 바뀌었습니다.</div>`;
+  html += rec
+    ? `<div class="result ok"><b>✅ 체인 기록과 일치</b>데모 블록 #${rec.height} (${new Date(rec.time).toLocaleString('ko-KR')})</div>`
+    : `<div class="result bad"><b>❌ 체인 기록 없음</b>이 범위 증명서의 지문이 체인에 없습니다. 기록 전이거나 내용이 바뀌었습니다.</div>`;
+  out.innerHTML = html;
+}
+
 /* ---------- 검증 ---------- */
 function verify(){
   const out=$('verifyOut'); let obj;
   try { obj = JSON.parse($('verifyText').value); } catch(e){ out.innerHTML=`<div class="result bad"><b>읽을 수 없는 파일</b>JSON 형식이 아닙니다.</div>`; return; }
   if (!obj || typeof obj!=='object'){ out.innerHTML=`<div class="result bad"><b>읽을 수 없는 파일</b>CoinProof 증명서 형식이 아닙니다.</div>`; return; }
+  if (obj.범위증명){ verifyZK(obj, out); return; }
   const isDetail = !!obj.요약증명서; const cert = isDetail ? obj.요약증명서 : obj;
   const h = sha256(canon(cert)); const rec = getChain().find(b=>b.certHash===h);
   let html='';
@@ -521,6 +643,7 @@ function verify(){
 function tamper(){
   let obj; try { obj=JSON.parse($('verifyText').value); } catch { obj=null; }
   if (!obj || typeof obj!=='object'){ $('verifyOut').textContent='먼저 증명서를 불러오세요 ("방금 발급한 증명서 불러오기").'; return; }
+  if (obj.범위증명){ obj.기준금액 = Math.round(obj.기준금액/2); obj.주장 = `양도손익 ≤ ${fmt(obj.기준금액)}원`; $('verifyText').value = JSON.stringify(obj, null, 2); verify(); return; }
   const c = obj.요약증명서 || obj;
   if (c.요약){ c.요약.양도손익 = Math.round(c.요약.양도손익*0.5); c.요약.과세표준=Math.max(0,c.요약.양도손익-c.요약.기본공제); c.요약.예상세액=Math.round(c.요약.과세표준*0.22); }
   $('verifyText').value = JSON.stringify(obj, null, 2); verify();
@@ -551,7 +674,7 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>switchTab(b.dataset.t
 $('btnSample').onclick=()=>load(SAMPLE_CSV,'샘플: 내_코인_거래내역_2025.csv');
 $('fileCsv').onchange=e=>{ const f=e.target.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=()=>{ const buf=new Uint8Array(rd.result); let txt; try { txt=new TextDecoder('utf-8',{fatal:true}).decode(buf); } catch { txt=new TextDecoder('euc-kr').decode(buf); } load(txt,f.name); }; rd.readAsArrayBuffer(f); };
 $('myWallets').onchange=()=>{ if(LAST.text) load(LAST.text, LAST.name+' (지갑 목록 반영해 다시 분류)'); };
-$('btnIssue').onclick=issue;
+$('btnIssue').onclick=issue; $('btnZk').onclick=issueZK;
 $('btnRecordDemo').onclick=recordDemo; $('btnRecordSepolia').onclick=recordSepolia;
 const dl=(obj,name)=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(obj,null,2)],{type:'application/json'})); a.download=name; a.click(); };
 $('btnDlCert').onclick=()=>dl(CERT,`CoinProof_요약증명서_${SUMMARY.year}.json`);
