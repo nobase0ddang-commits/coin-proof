@@ -3,10 +3,10 @@ const http = require('http'), fs = require('fs'), path = require('path');
 const root = __dirname, port = 5177;
 const types = { '.html':'text/html; charset=utf-8', '.js':'text/javascript', '.css':'text/css', '.json':'application/json', '.csv':'text/csv; charset=utf-8', '.svg':'image/svg+xml', '.png':'image/png' };
 const server = http.createServer((req, res) => {
-  let p = decodeURIComponent(req.url.split('?')[0]);
+  let p; try { p = decodeURIComponent(req.url.split('?')[0]); } catch { res.writeHead(400); return res.end('bad request'); }
   if (p === '/') p = '/index.html';
   const file = path.join(root, p);
-  if (!file.startsWith(root)) { res.writeHead(403); return res.end(); }
+  if (file !== root && !file.startsWith(root + path.sep)) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (err, buf) => {
     if (err) { res.writeHead(404); return res.end('not found'); }
     res.writeHead(200, { 'Content-Type': types[path.extname(file)] || 'application/octet-stream' });

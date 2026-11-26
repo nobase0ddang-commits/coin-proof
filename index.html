@@ -272,11 +272,14 @@ const SAMPLE_CSV = `일시,거래소,구분,원본유형,코인,수량,단가(�
 /* ---------- CSV ---------- */
 function parseCSV(text){
   const lines = text.replace(/^﻿/,'').split(/\r?\n/).filter(s=>s.trim());
-  const split = s => { const out=[]; let cur='', q=false; for(const ch of s){ if(ch==='"'){q=!q;continue;} if(ch===','&&!q){out.push(cur);cur='';} else cur+=ch; } out.push(cur); return out.map(x=>x.trim()); };
+  const split = s => { const out=[]; let cur='', q=false; for(let k=0;k<s.length;k++){ const ch=s[k]; if(ch==='"'){ if(q&&s[k+1]==='"'){cur+='"';k++;} else q=!q; continue; } if(ch===','&&!q){out.push(cur);cur='';} else cur+=ch; } out.push(cur); return out.map(x=>x.trim()); };
+  const num = x => +String(x??'').replace(/[,\s원₩]/g,'') || 0;
+  if (!lines.length) return [];
   const head = split(lines[0]);
+  if (!/일시|date|time/i.test(head[0]||'') || head.length < 6) throw new Error('열 구성이 다릅니다. 첫 줄이 "일시,거래소,구분,원본유형,코인,수량,단가(원),수수료(원),상대방(주소·메모)" 순서여야 합니다. sample 폴더의 CSV를 참고하세요.');
   return lines.slice(1).map((ln,i)=>{ const c=split(ln); return {
-    id:i+1, time:c[0], exchange:c[1], region:c[2], raw:c[3], asset:(c[4]||'').toUpperCase(),
-    qty:+c[5]||0, price:+c[6]||0, fee:+c[7]||0, memo:c[8]||'' }; });
+    id:i+1, time:c[0]||'', exchange:c[1]||'', region:c[2]||'', raw:c[3]||'', asset:(c[4]||'').toUpperCase(),
+    qty:num(c[5]), price:num(c[6]), fee:num(c[7]), memo:c[8]||'' }; });
 }
 
 /* ---------- 분류 엔진 ---------- */
@@ -298,11 +301,11 @@ function typeOf(raw){
   if (/입금|deposit/.test(s)) return 'IN';
   return 'UNK';
 }
-const ts = t => new Date(t.replace(' ','T')).getTime();
+const ts = t => { const m=String(t).trim().match(/^(\d{4})[-./]\s*(\d{1,2})[-./]\s*(\d{1,2})\.?(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/); return m ? new Date(+m[1],m[2]-1,+m[3],+(m[4]||0),+(m[5]||0),+(m[6]||0)).getTime() : NaN; };
 const short = a => a.split(/[\s(]/)[0];
 function classify(rows, wallets){
-  const mine = a => wallets.some(w => w && a.includes(w));
-  rows.forEach(r=>{ r.t=typeOf(r.raw); r.pair=null; r.flag=false; });
+  const mine = a => wallets.some(w => w && a.toLowerCase().includes(w.toLowerCase()));
+  rows.forEach(r=>{ r.t=typeOf(r.raw); r.pair=null; r.flag=false; r.ask=false; });
   for (const o of rows.filter(r=>r.t==='OUT')){
     const cand = rows.filter(i=>i.t==='IN' && !i.pair && i.asset===o.asset && i.exchange!==o.exchange
       && ts(i.time)>=ts(o.time) && ts(i.time)-ts(o.time) <= 864e5 && i.qty<=o.qty && i.qty>=o.qty*0.98);
@@ -322,14 +325,15 @@ function classify(rows, wallets){
       case 'REWARD': r.cat='REWARD'; r.conf=0.9; r.reason=`메모 "${r.memo}" → 예치 보상. 취득가 = 받은 날 시가(${fmt(r.price)}원).`; break;
       case 'OUT':
         if (mine(r.memo)){ r.cat='XFER_OUT'; r.conf=0.9; r.toWallet=true; r.reason=`받는 주소 ${short(r.memo)}가 내 지갑 목록에 있음 → 개인 지갑으로 옮김. 과세 거래 아님.`; }
-        else { r.cat='UNKNOWN_OUT'; r.conf=0.45; r.flag=true; r.reason='받는 주소가 내 지갑이 아니고 짝이 되는 입금도 없음. 선물·결제인지 확인 필요.'; }
+        else { r.cat='UNKNOWN_OUT'; r.conf=0.45; r.flag=true; r.ask=true; r.reason='받는 주소가 내 지갑이 아니고 짝이 되는 입금도 없음. 선물·결제인지 확인 필요.'; }
         break;
       case 'IN':
         if (mine(r.memo)){ r.cat='XFER_IN'; r.conf=0.85; r.fromWallet=true; r.reason=`보낸 주소가 내 지갑 목록에 있음 → 개인 지갑에서 옮겨 옴.`; }
-        else { r.cat='UNKNOWN_IN'; r.conf=0.4; r.flag=true; r.reason=`보낸 주소 ${short(r.memo)}가 내 지갑 목록에 없고 짝이 되는 출금도 없음. 원래 산 값을 모르면 취득가 0원(세금이 가장 크게 잡히는 쪽)으로 둠. 다른 곳에서 산 코인이면 "외부 보유분 이전"으로 바꾸세요.`; }
+        else { r.cat='UNKNOWN_IN'; r.conf=0.4; r.flag=true; r.ask=true; r.reason=`보낸 주소 ${short(r.memo)}가 내 지갑 목록에 없고 짝이 되는 출금도 없음. 원래 산 값을 모르면 취득가 0원(세금이 가장 크게 잡히는 쪽)으로 둠. 다른 곳에서 산 코인이면 "외부 보유분 이전"으로 바꾸세요.`; }
         break;
-      default: r.cat='UNKNOWN_IN'; r.conf=0.3; r.flag=true; r.reason='유형을 알 수 없음.';
+      default: r.cat='UNKNOWN_IN'; r.conf=0.3; r.flag=true; r.ask=true; r.reason='유형을 알 수 없음.';
     }
+    if (isNaN(ts(r.time))){ r.flag=true; r.conf=Math.min(r.conf,0.3); r.reason='일시 형식을 읽지 못함(예: 2025-01-06 10:12). 순서·짝 맞추기가 틀릴 수 있음. '+r.reason; }
   }
   return rows;
 }
@@ -346,7 +350,7 @@ function compute(rows){
     else { let need=q; while(need>1e-12 && p.lots.length){ const l=p.lots[0], u=Math.min(need,l.q); cost+=u*l.u; l.q-=u; need-=u; if(l.q<1e-12) p.lots.shift(); } short=need>1e-12?need:0; }
     return {cost, short};
   };
-  const sorted = rows.slice().sort((a,b)=>ts(a.time)-ts(b.time)||a.id-b.id);
+  const sorted = rows.slice().sort((a,b)=>(ts(a.time)||0)-(ts(b.time)||0)||a.id-b.id);
   for (const r of sorted){
     if (r.cat==='SELL' && r.short){ r.flag=false; r.reason=`처분 이익 계산 대상. ${r.region==='국내'?'이동평균법':'선입선출법'} 적용.`; }
     r.proceeds=r.cost=r.gain=null; r.short=0;
@@ -368,7 +372,7 @@ function compute(rows){
   const byRegion = reg => Math.round(sells.filter(r=>reg==='국내'?r.region==='국내':r.region!=='국내').reduce((s,r)=>s+r.gain,0));
   const holdings = Object.values(pools).map(p=>{ const q = p.method==='avg'? p.qty : p.lots.reduce((s,l)=>s+l.q,0); const c = p.method==='avg'? p.cost : p.lots.reduce((s,l)=>s+l.q*l.u,0); return {venue:p.venue, asset:p.asset, method:p.method, qty:q, cost:c}; }).filter(h=>h.qty>1e-9);
   return {
-    year: sorted.length ? sorted[0].time.slice(0,4) : '',
+    year: (()=>{ const ys=[...new Set(rows.map(r=>String(r.time).slice(0,4)).filter(y=>/^\d{4}$/.test(y)))].sort(); return !ys.length?'':ys.length===1?ys[0]:ys[0]+'~'+ys[ys.length-1]; })(),
     txCount: rows.length, sellCount: sells.length,
     proceeds: Math.round(sum('proceeds')), cost: Math.round(sum('cost')), gain,
     gainDomestic: byRegion('국내'), gainOverseas: byRegion('해외'),
@@ -386,7 +390,9 @@ let ROWS=[], SUMMARY=null, CERT=null, DETAIL=null, CERT_HASH=null;
 const LAST = { text:'', name:'' };
 function load(text, name){
   if (!name.includes('다시 분류')) { LAST.text = text; LAST.name = name; }
-  ROWS = classify(parseCSV(text), $('myWallets').value.split(',').map(s=>s.trim()).filter(Boolean));
+  let parsed; try { parsed = parseCSV(text); } catch(e){ $('loadInfo').textContent = `${name} · 읽지 못했습니다: ${e.message}`; return; }
+  if (!parsed.length){ $('loadInfo').textContent = `${name} · 거래가 한 건도 없습니다.`; return; }
+  ROWS = classify(parsed, $('myWallets').value.split(',').map(s=>s.trim()).filter(Boolean));
   $('loadInfo').textContent = `${name} · ${ROWS.length}건을 읽었습니다. (업로드 없음, 이 탭 메모리에서만 처리)`;
   $('engineName').textContent = `· ${ENGINE.name} v${ENGINE.version}${AI.ok ? ' + 로컬 AI('+AI.model+')' : ''}`;
   ['secClassify','secTax','secIssue'].forEach(id=>$(id).classList.remove('hidden'));
@@ -399,13 +405,15 @@ function refresh(){
   if (CERT){ $('issueOut').classList.add('hidden'); CERT=null; $('recordOut').textContent=''; }
 }
 function renderClass(){
-  const opts = r => ['UNKNOWN_IN','IN_MARKET','UNKNOWN_OUT'].includes(r.cat)
-    ? `<select data-id="${r.id}">${(r.t==='OUT'?['UNKNOWN_OUT']:['UNKNOWN_IN','IN_MARKET']).map(k=>`<option value="${k}" ${k===r.cat?'selected':''}>${CAT[k].label}</option>`).join('')}</select>`
+  const opts = r => r.ask
+    ? `<select data-id="${r.id}">${(r.t==='OUT'?['UNKNOWN_OUT','XFER_OUT']:['UNKNOWN_IN','IN_MARKET']).map(k=>`<option value="${k}" ${k===r.cat?'selected':''}>${CAT[k].label}</option>`).join('')}</select>`
     : `<span class="tag ${CAT[r.cat].cls}">${CAT[r.cat].label}</span>`;
   $('tblClass').innerHTML = `<tr><th>#</th><th>일시</th><th>거래소</th><th>원본 유형</th><th>코인</th><th class="num">수량</th><th>분류 결과</th><th class="num">확신도</th><th>판단 근거</th><th></th></tr>` +
-    ROWS.map(r=>`<tr class="${r.flag?'flag':''}"><td>${r.id}</td><td>${r.time}</td><td>${esc(r.exchange)}</td><td>${esc(r.raw)}</td><td>${r.asset}</td><td class="num">${r.qty}</td><td>${opts(r)}</td><td class="num conf">${Math.round(r.conf*100)}%</td><td class="reason">${esc(r.reason)}${r.ai?`<div style="margin-top:4px;color:var(--ink)">🤖 ${esc(r.ai)}</div>`:''}</td><td>${r.flag?`<button class="b" data-ai="${r.id}" style="padding:4px 10px;font-size:12px">AI 의견</button>`:''}</td></tr>`).join('');
+    ROWS.map(r=>`<tr class="${r.flag?'flag':''}"><td>${r.id}</td><td>${esc(r.time)}</td><td>${esc(r.exchange)}</td><td>${esc(r.raw)}</td><td>${esc(r.asset)}</td><td class="num">${r.qty}</td><td>${opts(r)}</td><td class="num conf">${Math.round(r.conf*100)}%</td><td class="reason">${esc(r.reason)}${r.ai?`<div style="margin-top:4px;color:var(--ink)">🤖 ${esc(r.ai)}</div>`:''}</td><td>${r.flag?`<button class="b" data-ai="${r.id}" style="padding:4px 10px;font-size:12px">AI 의견</button>`:''}</td></tr>`).join('');
   $('tblClass').querySelectorAll('select').forEach(s=>s.onchange=()=>{ const r=ROWS.find(x=>x.id==s.dataset.id); r.cat=s.value;
     if (r.cat==='IN_MARKET'){ r.flag=false; r.conf=1; r.reason=`본인 확인: 다른 곳에서 보유하던 코인을 옮김. 취득가 = 입금일 시가(${fmt(r.price)}원) 적용.`; }
+    else if (r.cat==='XFER_OUT'){ r.flag=false; r.conf=1; r.reason='본인 확인: 내 개인 지갑으로 옮김. 과세 거래 아님, 취득가 그대로 이전.'; }
+    else if (r.cat==='UNKNOWN_OUT'){ r.flag=true; r.conf=0.45; r.reason='받는 주소가 내 지갑이 아니고 짝이 되는 입금도 없음. 선물·결제인지 확인 필요.'; }
     else if (r.cat==='UNKNOWN_IN'){ r.flag=true; r.conf=0.4; r.reason=`보낸 주소 ${short(r.memo)}가 내 지갑 목록에 없고 짝이 되는 출금도 없음. 원래 산 값을 모르면 취득가 0원(세금이 가장 크게 잡히는 쪽)으로 둠. 다른 곳에서 산 코인이면 "외부 보유분 이전"으로 바꾸세요.`; }
     refresh(); });
   $('tblClass').querySelectorAll('[data-ai]').forEach(b=>b.onclick=()=>askAI(+b.dataset.ai, b));
@@ -418,9 +426,9 @@ function renderTax(){
   ].map(([k,v])=>`<div class="kpi"><div class="k">${k}</div><div class="v">${fmt(v)}원</div></div>`).join('') +
     `<div class="kpi main"><div class="k">예상 세액 (22%)</div><div class="v">${fmt(s.tax)}원</div></div>`;
   $('tblGains').innerHTML = `<tr><th>일시</th><th>거래소</th><th>코인</th><th class="num">양도가액</th><th class="num">취득가액</th><th class="num">손익</th></tr>` +
-    ROWS.filter(r=>r.cat==='SELL').map(r=>`<tr><td>${r.time.slice(0,10)}</td><td>${esc(r.exchange)}</td><td>${r.asset}</td><td class="num">${fmt(r.proceeds)}</td><td class="num">${fmt(r.cost)}</td><td class="num ${r.gain>=0?'pos':'neg'}">${fmt(r.gain)}</td></tr>`).join('');
+    ROWS.filter(r=>r.cat==='SELL').map(r=>`<tr><td>${esc(r.time.slice(0,10))}</td><td>${esc(r.exchange)}</td><td>${esc(r.asset)}</td><td class="num">${fmt(r.proceeds)}</td><td class="num">${fmt(r.cost)}</td><td class="num ${r.gain>=0?'pos':'neg'}">${fmt(r.gain)}</td></tr>`).join('');
   $('tblHold').innerHTML = `<tr><th>보관처</th><th>코인</th><th class="num">수량</th><th class="num">취득가 합계</th><th>방식</th></tr>` +
-    s.holdings.map(h=>`<tr><td>${esc(h.venue)}</td><td>${h.asset}</td><td class="num">${+h.qty.toFixed(6)}</td><td class="num">${fmt(h.cost)}</td><td>${h.method==='avg'?'이동평균':'선입선출'}</td></tr>`).join('');
+    s.holdings.map(h=>`<tr><td>${esc(h.venue)}</td><td>${esc(h.asset)}</td><td class="num">${+h.qty.toFixed(6)}</td><td class="num">${fmt(h.cost)}</td><td>${h.method==='avg'?'이동평균':'선입선출'}</td></tr>`).join('');
 }
 
 function issue(){
@@ -443,7 +451,7 @@ function issue(){
   CERT_HASH = sha256(canon(CERT));
   DETAIL = { 문서:'CoinProof 상세 거래 내역 (본인 보관용)', 요약증명서: CERT, 거래: rows };
   $('certView').innerHTML = `<h3>가상자산 손익 요약 증명서 · ${s.year}년</h3><dl>
-    <dt>제출자</dt><dd>${esc(CERT.제출자)}</dd><dt>제출처</dt><dd>${esc(CERT.제출처)}</dd>
+    <dt>대상 연도</dt><dd>${esc(s.year)}</dd><dt>제출자</dt><dd>${esc(CERT.제출자)}</dd><dt>제출처</dt><dd>${esc(CERT.제출처)}</dd>
     <dt>거래 건수</dt><dd>${s.txCount}건 (매도 ${s.sellCount}건)</dd>
     <dt>양도 손익</dt><dd>${fmt(s.gain)}원 (국내 ${fmt(s.gainDomestic)} / 해외 ${fmt(s.gainOverseas)})</dd>
     <dt>과세표준</dt><dd>${fmt(s.taxBase)}원</dd><dt>예상 세액</dt><dd><b>${fmt(s.tax)}원</b></dd>
@@ -491,6 +499,7 @@ function renderLedger(){
 function verify(){
   const out=$('verifyOut'); let obj;
   try { obj = JSON.parse($('verifyText').value); } catch(e){ out.innerHTML=`<div class="result bad"><b>읽을 수 없는 파일</b>JSON 형식이 아닙니다.</div>`; return; }
+  if (!obj || typeof obj!=='object'){ out.innerHTML=`<div class="result bad"><b>읽을 수 없는 파일</b>CoinProof 증명서 형식이 아닙니다.</div>`; return; }
   const isDetail = !!obj.요약증명서; const cert = isDetail ? obj.요약증명서 : obj;
   const h = sha256(canon(cert)); const rec = getChain().find(b=>b.certHash===h);
   let html='';
@@ -510,7 +519,8 @@ function verify(){
   out.innerHTML = html;
 }
 function tamper(){
-  let obj; try { obj=JSON.parse($('verifyText').value); } catch { return; }
+  let obj; try { obj=JSON.parse($('verifyText').value); } catch { obj=null; }
+  if (!obj || typeof obj!=='object'){ $('verifyOut').textContent='먼저 증명서를 불러오세요 ("방금 발급한 증명서 불러오기").'; return; }
   const c = obj.요약증명서 || obj;
   if (c.요약){ c.요약.양도손익 = Math.round(c.요약.양도손익*0.5); c.요약.과세표준=Math.max(0,c.요약.양도손익-c.요약.기본공제); c.요약.예상세액=Math.round(c.요약.과세표준*0.22); }
   $('verifyText').value = JSON.stringify(obj, null, 2); verify();
