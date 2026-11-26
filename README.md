@@ -43,3 +43,8 @@ Nesa AI × Blockchain Valley 해커톤 (Track 1 Private Input + Track 3 Verifiab
 ## Sepolia 기록 (선택)
 - MetaMask + Sepolia 테스트 ETH 필요. 자기 자신에게 0 ETH, data = `COINPROOF` + 지문으로 전송
 - 행사장 와이파이가 불안하면 데모 체인으로 시연
+
+## 발표 자료 (`발표자료/` 폴더)
+- `CoinProof_발표자료.pdf` — 11장, 16:9. 어느 PC에서나 열어서 전체화면으로 발표 (인터넷 불필요)
+- `CoinProof_발표자료.html` — 크롬으로 열어 발표. ←→ 넘김, F 전체화면, N 발표자 노트 (글꼴은 인터넷 있을 때 Noto Sans KR, 없으면 맑은 고딕)
+- 말할 내용은 `발표대본.md`
