@@ -275,7 +275,7 @@ function parseCSV(text){
   const split = s => { const out=[]; let cur='', q=false; for(const ch of s){ if(ch==='"'){q=!q;continue;} if(ch===','&&!q){out.push(cur);cur='';} else cur+=ch; } out.push(cur); return out.map(x=>x.trim()); };
   const head = split(lines[0]);
   return lines.slice(1).map((ln,i)=>{ const c=split(ln); return {
-    id:i+1, time:c[0], exchange:c[1], region:c[2], raw:c[3], asset:c[4].toUpperCase(),
+    id:i+1, time:c[0], exchange:c[1], region:c[2], raw:c[3], asset:(c[4]||'').toUpperCase(),
     qty:+c[5]||0, price:+c[6]||0, fee:+c[7]||0, memo:c[8]||'' }; });
 }
 
@@ -348,11 +348,12 @@ function compute(rows){
   };
   const sorted = rows.slice().sort((a,b)=>ts(a.time)-ts(b.time)||a.id-b.id);
   for (const r of sorted){
+    if (r.cat==='SELL' && r.short){ r.flag=false; r.reason=`처분 이익 계산 대상. ${r.region==='국내'?'이동평균법':'선입선출법'} 적용.`; }
     r.proceeds=r.cost=r.gain=null; r.short=0;
     const p = pool(r.exchange, r.asset, methodOf(r));
     switch(r.cat){
       case 'BUY': add(p, r.qty, r.qty*r.price + r.fee); break;
-      case 'SELL': { const t=take(p, r.qty); r.proceeds=r.qty*r.price - r.fee; r.cost=t.cost; r.gain=r.proceeds-t.cost; r.short=t.short; if(t.short) r.flag=true; break; }
+      case 'SELL': { const t=take(p, r.qty); r.proceeds=r.qty*r.price - r.fee; r.cost=t.cost; r.gain=r.proceeds-t.cost; r.short=t.short; if(t.short){ r.flag=true; r.reason=`처분 이익 계산 대상. 다만 이 거래소 보유량보다 ${+t.short.toFixed(8)} ${r.asset} 더 팔았음 → 부족분 취득가 0원 처리. 빠진 매수·입금 내역이 있는지 확인 필요.`; } break; }
       case 'REWARD': add(p, r.qty, r.qty*r.price); break;
       case 'AIRDROP': case 'UNKNOWN_IN': add(p, r.qty, 0); break;
       case 'IN_MARKET': add(p, r.qty, r.qty*r.price); break;
@@ -398,14 +399,14 @@ function refresh(){
   if (CERT){ $('issueOut').classList.add('hidden'); CERT=null; $('recordOut').textContent=''; }
 }
 function renderClass(){
-  const opts = r => r.flag || ['UNKNOWN_IN','IN_MARKET','UNKNOWN_OUT'].includes(r.cat)
+  const opts = r => ['UNKNOWN_IN','IN_MARKET','UNKNOWN_OUT'].includes(r.cat)
     ? `<select data-id="${r.id}">${(r.t==='OUT'?['UNKNOWN_OUT']:['UNKNOWN_IN','IN_MARKET']).map(k=>`<option value="${k}" ${k===r.cat?'selected':''}>${CAT[k].label}</option>`).join('')}</select>`
     : `<span class="tag ${CAT[r.cat].cls}">${CAT[r.cat].label}</span>`;
   $('tblClass').innerHTML = `<tr><th>#</th><th>일시</th><th>거래소</th><th>원본 유형</th><th>코인</th><th class="num">수량</th><th>분류 결과</th><th class="num">확신도</th><th>판단 근거</th><th></th></tr>` +
     ROWS.map(r=>`<tr class="${r.flag?'flag':''}"><td>${r.id}</td><td>${r.time}</td><td>${esc(r.exchange)}</td><td>${esc(r.raw)}</td><td>${r.asset}</td><td class="num">${r.qty}</td><td>${opts(r)}</td><td class="num conf">${Math.round(r.conf*100)}%</td><td class="reason">${esc(r.reason)}${r.ai?`<div style="margin-top:4px;color:var(--ink)">🤖 ${esc(r.ai)}</div>`:''}</td><td>${r.flag?`<button class="b" data-ai="${r.id}" style="padding:4px 10px;font-size:12px">AI 의견</button>`:''}</td></tr>`).join('');
   $('tblClass').querySelectorAll('select').forEach(s=>s.onchange=()=>{ const r=ROWS.find(x=>x.id==s.dataset.id); r.cat=s.value;
     if (r.cat==='IN_MARKET'){ r.flag=false; r.conf=1; r.reason=`본인 확인: 다른 곳에서 보유하던 코인을 옮김. 취득가 = 입금일 시가(${fmt(r.price)}원) 적용.`; }
-    else if (r.cat==='UNKNOWN_IN'){ r.flag=true; r.conf=0.4; }
+    else if (r.cat==='UNKNOWN_IN'){ r.flag=true; r.conf=0.4; r.reason=`보낸 주소 ${short(r.memo)}가 내 지갑 목록에 없고 짝이 되는 출금도 없음. 원래 산 값을 모르면 취득가 0원(세금이 가장 크게 잡히는 쪽)으로 둠. 다른 곳에서 산 코인이면 "외부 보유분 이전"으로 바꾸세요.`; }
     refresh(); });
   $('tblClass').querySelectorAll('[data-ai]').forEach(b=>b.onclick=()=>askAI(+b.dataset.ai, b));
 }
@@ -538,7 +539,7 @@ async function askAI(id, btn){
 function switchTab(t){ document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on',b.dataset.tab===t)); ['owner','verify','chain'].forEach(x=>$('tab-'+x).classList.toggle('hidden',x!==t)); if(t==='chain') renderLedger(); }
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
 $('btnSample').onclick=()=>load(SAMPLE_CSV,'샘플: 내_코인_거래내역_2025.csv');
-$('fileCsv').onchange=e=>{ const f=e.target.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=()=>load(rd.result,f.name); rd.readAsText(f,'utf-8'); };
+$('fileCsv').onchange=e=>{ const f=e.target.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=()=>{ const buf=new Uint8Array(rd.result); let txt; try { txt=new TextDecoder('utf-8',{fatal:true}).decode(buf); } catch { txt=new TextDecoder('euc-kr').decode(buf); } load(txt,f.name); }; rd.readAsArrayBuffer(f); };
 $('myWallets').onchange=()=>{ if(LAST.text) load(LAST.text, LAST.name+' (지갑 목록 반영해 다시 분류)'); };
 $('btnIssue').onclick=issue;
 $('btnRecordDemo').onclick=recordDemo; $('btnRecordSepolia').onclick=recordSepolia;
