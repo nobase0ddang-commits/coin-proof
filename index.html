@@ -41,7 +41,7 @@ button.b:hover{border-color:var(--brand)}
 button.p{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
 button.danger{color:var(--bad);border-color:var(--bad)}
 button:disabled{opacity:.45;cursor:not-allowed}
-input[type=text]{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:9px;padding:8px 11px;font:inherit;min-width:260px}
+input[type=password],input[type=text]{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:9px;padding:8px 11px;font:inherit;min-width:260px}
 label.f{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
 .tblwrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
 table{border-collapse:collapse;width:100%;font-size:13.5px}
@@ -106,15 +106,37 @@ textarea{width:100%;min-height:260px;font-family:var(--mono);font-size:12.5px;bo
 <div id="tab-owner">
   <section class="card">
     <h2><span class="n">1</span>거래 내역 불러오기</h2>
-    <p class="desc">거래소에서 받은 CSV를 고릅니다. 파일은 브라우저 메모리에서만 읽고, 어디에도 업로드하지 않습니다.</p>
+    <p class="desc">거래소에서 받은 CSV를 고릅니다(여러 개 한꺼번에 가능). <b>업비트·빗썸·코인원</b>에서 내려받은 전체 내역 파일을 그대로 넣으면 됩니다. 파일은 브라우저 메모리에서만 읽고, 어디에도 업로드하지 않습니다.</p>
     <div class="row">
       <button class="b p" id="btnSample">샘플 내역 불러오기</button>
-      <label class="b" style="cursor:pointer">CSV 파일 선택<input type="file" id="fileCsv" accept=".csv,text/csv" hidden></label>
+      <label class="b" style="cursor:pointer">CSV 파일 선택<input type="file" id="fileCsv" accept=".csv,text/csv" multiple hidden></label>
       <label class="f">내 지갑 주소 (쉼표로 구분 · 본인 이체 판별용)
         <input type="text" id="myWallets" value="7Hc4...pQ9z, 0x7b21...e04d">
       </label>
     </div>
+    <details id="apiBox" style="margin-top:12px;border:1px solid var(--line);border-radius:10px;padding:10px 14px">
+      <summary style="cursor:pointer;font-weight:700">🔗 업비트 API로 바로 불러오기 (조회 전용 키)</summary>
+      <p class="desc" style="margin:10px 0">업비트 → 마이페이지 → Open API 관리에서 <b>자산조회 · 주문조회 · 입출금조회만</b> 체크해 키를 만드세요. <b>주문하기 · 출금하기는 체크하지 마세요.</b> 발급할 때 이 PC의 IP 주소를 등록해야 합니다. 키는 이 화면 메모리에만 있고 어디에도 저장하지 않습니다.<br>이 기능은 업비트 서버에 <b>내 거래 내역을 받아오는 요청</b>만 보냅니다(분석·증명서는 그대로 내 PC 안에서). 받아온 뒤에는 인터넷을 끊어도 됩니다.</p>
+      <div class="row">
+        <label class="f">Access Key<input type="password" id="upA" autocomplete="off" spellcheck="false"></label>
+        <label class="f">Secret Key<input type="password" id="upS" autocomplete="off" spellcheck="false"></label>
+        <label class="f">시작 연도<input type="text" id="upFrom" value="2017" style="min-width:90px;width:90px"></label>
+        <button class="b" id="btnUpTest" style="align-self:flex-end">연결 확인</button>
+        <button class="b p" id="btnUpLoad" style="align-self:flex-end">거래 내역 받아오기</button>
+      </div>
+      <div id="apiOut" class="note" style="margin-top:8px"></div>
+    </details>
     <div id="loadInfo" class="note"></div>
+    <div class="row hidden" id="yearRow" style="margin-top:10px">
+      <label class="f">세금 계산 대상 연도 (취득가는 이전 연도 내역까지 모두 반영)
+        <select id="taxYear" style="border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:9px;padding:8px 11px;font:inherit"></select>
+      </label>
+      <label class="f">분류 표에 보일 거래
+        <select id="showScope" style="border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:9px;padding:8px 11px;font:inherit">
+          <option value="year">대상 연도 거래만</option><option value="flag">확인 필요(노란 줄)만 · 전체 연도</option><option value="all">전체 연도 모두</option>
+        </select>
+      </label>
+    </div>
   </section>
 
   <section class="card hidden" id="secClassify">
@@ -214,7 +236,7 @@ const _fetch = window.fetch.bind(window);
 window.fetch = (u, o) => { const url = typeof u === 'string' ? u : u.url; if (!isLocal(url)) { extCount++; renderNet(); } return _fetch(u, o); };
 function renderNet(){
   const c = document.getElementById('extChip');
-  c.textContent = `외부로 나간 요청 ${extCount}건`; c.className = 'chip ' + (extCount ? 'bad' : 'ok');
+  c.textContent = `외부로 나간 요청 ${extCount}건` + (typeof UP!=='undefined' && UP.calls ? ` · 업비트 조회 ${UP.calls}건` : ''); c.className = 'chip ' + (extCount ? 'bad' : 'ok');
   const o = document.getElementById('onlineChip');
   o.textContent = navigator.onLine ? '인터넷 연결됨' : '인터넷 끊김 (오프라인 동작 중)';
 }
@@ -349,12 +371,75 @@ const SAMPLE_CSV = `일시,거래소,구분,원본유형,코인,수량,단가(�
 2025-12-15 17:00,업비트,국내,매도,ETH,0.5,5600000,1400,`;
 
 /* ---------- CSV ---------- */
+const splitCSV = s => { const out=[]; let cur='', q=false; for(let k=0;k<s.length;k++){ const ch=s[k]; if(ch==='"'){ if(q&&s[k+1]==='"'){cur+='"';k++;} else q=!q; continue; } if(ch===','&&!q){out.push(cur);cur='';} else cur+=ch; } out.push(cur); return out.map(x=>x.trim()); };
+const numv = x => { const v = +String(x??'').replace(/[,\s원₩]/g,''); return isFinite(v) ? v : 0; };
+const jsonAddr = s => { try { const j = JSON.parse(s); return j.address ? String(j.address).split('_')[0] : ''; } catch { return ''; } };
+/* 거래소 원본 형식 → 공통 형식 {time, exchange, region, raw, asset, qty, price(원), fee(원), memo} */
+const FORMATS = [
+  { name:'업비트', test:h=>h[0]==='event_at' && h.includes('event_type'), rows(L, skip){
+      const H=L[0], ix=k=>H.indexOf(k), out=[];
+      for (const c of L.slice(1)){
+        const g=k=>c[ix(k)]||'', ev=g('event_type'), cur=g('currency'), mk=g('market'), tt=g('transaction_type');
+        const time=g('event_at').slice(0,19).replace('T',' ');
+        if (cur==='KRW' && (ev==='deposit'||ev==='withdraw')){ skip('원화 입출금'); continue; }
+        if (ev==='bid'||ev==='ask'){
+          const vol=numv(g('volume')), krw=mk.startsWith('KRW-');
+          const price = krw ? numv(g('price')) : (vol ? numv(g('fiat_amount'))/vol : 0);
+          const fee = krw ? numv(g('fee')) : numv(g('fee'))*numv(g('fiat_unit_price'));
+          out.push({time, exchange:'업비트', region:'국내', raw: ev==='bid'?'매수':'매도', asset:cur, qty:vol, price, fee, memo: krw?'':mk+' 마켓(원화 환산)'});
+        } else if (ev==='deposit'||ev==='withdraw'){
+          const memo = tt==='internal' ? '업비트 내부 이체' : tt==='pipe' ? '업비트 지급·토큰 전환' : '';
+          out.push({time, exchange:'업비트', region:'국내', raw: ev==='deposit'?'입금':'출금', asset:cur, qty:numv(g('amount')), price:0, fee:0, memo});
+        } else skip('기타 '+ev);
+      }
+      return out; } },
+  { name:'빗썸', test:h=>h[0]==='거래일시' && h.includes('거래구분'), rows(L, skip){
+      const out=[];
+      const REWARD = /스테이킹/, EVENT = /이벤트|에어드랍|포인트샵|마일리지|혜택|리워드|랜덤박스/;
+      for (const c of L.slice(1)){
+        const [time, asset, , kind, qtyS, priceS, settleS, amtS, feeS, , note] = c;
+        if (asset==='KRW'){ skip('원화 입출금·이자'); continue; }
+        const qty=numv(qtyS), price=numv(priceS);
+        if (kind==='매수'||kind==='매도'){
+          const settle=numv(settleS), amt=numv(amtS), fRaw=numv(feeS);
+          const fee = Math.abs(settle-amt) > 0.5 ? Math.abs(settle-amt) : fRaw*price;   // 원화 수수료 / 코인 수수료
+          out.push({time, exchange:'빗썸', region:'국내', raw:kind, asset, qty, price, fee, memo:''});
+        } else if (/입금/.test(kind) && !EVENT.test(kind)) out.push({time, exchange:'빗썸', region:'국내', raw:'입금', asset, qty, price:0, fee:0, memo: jsonAddr(note)});
+        else if (/출금/.test(kind)) out.push({time, exchange:'빗썸', region:'국내', raw:'출금', asset, qty, price:0, fee:0, memo: jsonAddr(note) || kind});
+        else if (REWARD.test(kind)) out.push({time, exchange:'빗썸', region:'국내', raw:'Staking Reward', asset, qty, price, fee:0, memo:'빗썸 '+kind});
+        else if (EVENT.test(kind)) out.push({time, exchange:'빗썸', region:'국내', raw:'Airdrop', asset, qty, price:0, fee:0, memo:'빗썸 '+kind});
+        else skip(kind);
+      }
+      return out; } },
+  { name:'코인원 체결', test:h=>h[0]==='체결일시(KST)', rows(L, skip){
+      return L.slice(1).map(([time, asset, , kind, qtyS, priceS, feeS, feeCur])=>{
+        const price=numv(priceS), fee = feeCur==='KRW' ? numv(feeS) : numv(feeS)*price;
+        return {time, exchange:'코인원', region:'국내', raw:kind, asset, qty:numv(qtyS), price, fee, memo:''}; }); } },
+  { name:'코인원 입출금', test:h=>h[0]==='일시(KST)' && h.includes('유형'), rows(L, skip){
+      const out=[];
+      for (const [time, asset, , qtyS, , priceS, kind, , st] of L.slice(1)){
+        if (asset==='KRW'){ skip('원화 입출금'); continue; }
+        if (st!=='1'){ skip('미완료 입출금'); continue; }
+        const qty=numv(qtyS), price=numv(priceS);
+        if (kind==='입금') out.push({time, exchange:'코인원', region:'국내', raw:'입금', asset, qty, price:0, fee:0, memo:''});
+        else if (kind==='출금') out.push({time, exchange:'코인원', region:'국내', raw:'출금', asset, qty, price:0, fee:0, memo:''});
+        else if (/스테이킹|이자/.test(kind)) out.push({time, exchange:'코인원', region:'국내', raw:'Staking Reward', asset, qty, price, fee:0, memo:'코인원 '+kind});
+        else out.push({time, exchange:'코인원', region:'국내', raw:'Airdrop', asset, qty, price:0, fee:0, memo:'코인원 '+kind});
+      }
+      return out; } },
+];
 function parseCSV(text){
   const lines = text.replace(/^﻿/,'').split(/\r?\n/).filter(s=>s.trim());
   const split = s => { const out=[]; let cur='', q=false; for(let k=0;k<s.length;k++){ const ch=s[k]; if(ch==='"'){ if(q&&s[k+1]==='"'){cur+='"';k++;} else q=!q; continue; } if(ch===','&&!q){out.push(cur);cur='';} else cur+=ch; } out.push(cur); return out.map(x=>x.trim()); };
   const num = x => +String(x??'').replace(/[,\s원₩]/g,'') || 0;
   if (!lines.length) return [];
-  const head = split(lines[0]);
+  const head = split(lines[0]).map(h=>h.replace(/^\uFEFF/,''));
+  const fmtx = FORMATS.find(f=>f.test(head));
+  if (fmtx){
+    const skipped={}; const rows = fmtx.rows(lines.map(split), why=>{ skipped[why]=(skipped[why]||0)+1; });
+    rows.forEach(r=>{ r.asset=String(r.asset||'').toUpperCase(); });
+    rows.kind = fmtx.name; rows.skipped = skipped; return rows;
+  }
   if (!/일시|date|time/i.test(head[0]||'') || head.length < 6) throw new Error('열 구성이 다릅니다. 첫 줄이 "일시,거래소,구분,원본유형,코인,수량,단가(원),수수료(원),상대방(주소·메모)" 순서여야 합니다. sample 폴더의 CSV를 참고하세요.');
   return lines.slice(1).map((ln,i)=>{ const c=split(ln); return {
     id:i+1, time:c[0]||'', exchange:c[1]||'', region:c[2]||'', raw:c[3]||'', asset:(c[4]||'').toUpperCase(),
@@ -436,7 +521,7 @@ function compute(rows){
     const p = pool(r.exchange, r.asset, methodOf(r));
     switch(r.cat){
       case 'BUY': add(p, r.qty, r.qty*r.price + r.fee); break;
-      case 'SELL': { const t=take(p, r.qty); r.proceeds=r.qty*r.price - r.fee; r.cost=t.cost; r.gain=r.proceeds-t.cost; r.short=t.short; if(t.short){ r.flag=true; r.reason=`처분 이익 계산 대상. 다만 이 거래소 보유량보다 ${+t.short.toFixed(8)} ${r.asset} 더 팔았음 → 부족분 취득가 0원 처리. 빠진 매수·입금 내역이 있는지 확인 필요.`; } break; }
+      case 'SELL': { const t=take(p, r.qty); r.proceeds=r.qty*r.price - r.fee; r.cost=t.cost; r.gain=r.proceeds-t.cost; r.short = t.short/r.qty < 0.001 ? 0 : t.short; /* 0.1% 미만 부족분은 수수료·소수점 반올림 차이 */ if(r.short){ r.flag=true; r.reason=`처분 이익 계산 대상. 다만 이 거래소 보유량보다 ${+t.short.toFixed(8)} ${r.asset} 더 팔았음 → 부족분 취득가 0원 처리. 빠진 매수·입금 내역이 있는지 확인 필요.`; } break; }
       case 'REWARD': add(p, r.qty, r.qty*r.price); break;
       case 'AIRDROP': case 'UNKNOWN_IN': add(p, r.qty, 0); break;
       case 'IN_MARKET': add(p, r.qty, r.qty*r.price); break;
@@ -445,18 +530,19 @@ function compute(rows){
       case 'UNKNOWN_OUT': take(p, r.qty); break;
     }
   }
-  const sells = rows.filter(r=>r.cat==='SELL');
+  const inYear = r => !TAX_YEAR || String(r.time).startsWith(TAX_YEAR);
+  const sells = rows.filter(r=>r.cat==='SELL' && inYear(r));
   const sum = k => sells.reduce((s,r)=>s+r[k],0);
   const gain = Math.round(sum('gain')), deduction=2500000, base=Math.max(0,gain-deduction);
   const byRegion = reg => Math.round(sells.filter(r=>reg==='국내'?r.region==='국내':r.region!=='국내').reduce((s,r)=>s+r.gain,0));
   const holdings = Object.values(pools).map(p=>{ const q = p.method==='avg'? p.qty : p.lots.reduce((s,l)=>s+l.q,0); const c = p.method==='avg'? p.cost : p.lots.reduce((s,l)=>s+l.q*l.u,0); return {venue:p.venue, asset:p.asset, method:p.method, qty:q, cost:c}; }).filter(h=>h.qty>1e-9);
   return {
-    year: (()=>{ const ys=[...new Set(rows.map(r=>String(r.time).slice(0,4)).filter(y=>/^\d{4}$/.test(y)))].sort(); return !ys.length?'':ys.length===1?ys[0]:ys[0]+'~'+ys[ys.length-1]; })(),
-    txCount: rows.length, sellCount: sells.length,
+    year: TAX_YEAR || (()=>{ const ys=[...new Set(rows.map(r=>String(r.time).slice(0,4)).filter(y=>/^\d{4}$/.test(y)))].sort(); return !ys.length?'':ys.length===1?ys[0]:ys[0]+'~'+ys[ys.length-1]; })(),
+    txCount: rows.filter(inYear).length, sellCount: sells.length,
     proceeds: Math.round(sum('proceeds')), cost: Math.round(sum('cost')), gain,
     gainDomestic: byRegion('국내'), gainOverseas: byRegion('해외'),
     deduction, taxBase: base, tax: Math.round(base*0.22),
-    flagged: rows.filter(r=>r.flag).length, holdings
+    flagged: rows.filter(r=>r.flag && inYear(r)).length, flaggedAll: rows.filter(r=>r.flag).length, holdings
   };
 }
 
@@ -464,15 +550,32 @@ function compute(rows){
 const $ = id => document.getElementById(id);
 const fmt = n => (n==null||isNaN(n)) ? '-' : Math.round(n).toLocaleString('ko-KR');
 const esc = s => String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-let ROWS=[], SUMMARY=null, CERT=null, DETAIL=null, CERT_HASH=null;
+let ROWS=[], SUMMARY=null, CERT=null, DETAIL=null, CERT_HASH=null, TAX_YEAR='';
 
-const LAST = { text:'', name:'' };
-function load(text, name){
-  if (!name.includes('다시 분류')) { LAST.text = text; LAST.name = name; }
-  let parsed; try { parsed = parseCSV(text); } catch(e){ $('loadInfo').textContent = `${name} · 읽지 못했습니다: ${e.message}`; return; }
-  if (!parsed.length){ $('loadInfo').textContent = `${name} · 거래가 한 건도 없습니다.`; return; }
-  ROWS = classify(parsed, $('myWallets').value.split(',').map(s=>s.trim()).filter(Boolean));
-  $('loadInfo').textContent = `${name} · ${ROWS.length}건을 읽었습니다. (업로드 없음, 이 탭 메모리에서만 처리)`;
+const LAST = { files:[] };
+function load(text, name){ loadFiles([{text, name}]); }
+function loadFiles(files, again){
+  if (!again) LAST.files = files;
+  let all=[], notes=[];
+  for (const f of files){
+    let parsed; try { parsed = parseCSV(f.text); } catch(e){ $('loadInfo').textContent = `${f.name} · 읽지 못했습니다: ${e.message}`; return; }
+    const sk = parsed.skipped ? Object.values(parsed.skipped).reduce((a,b)=>a+b,0) : 0;
+    notes.push(`${parsed.kind||f.name} ${parsed.length.toLocaleString()}건${sk?` (제외 ${sk}건: ${Object.keys(parsed.skipped).join('·')})`:''}`);
+    all = all.concat(parsed);
+  }
+  if (!all.length){ $('loadInfo').textContent = `${files.map(f=>f.name).join(', ')} · 거래가 한 건도 없습니다.`; return; }
+  if (files.length>1 || all.kind===undefined) all.sort((a,b)=>(ts(a.time)||0)-(ts(b.time)||0));
+  all.forEach((r,i)=>r.id=i+1);
+  ROWS = classify(all, $('myWallets').value.split(',').map(s=>s.trim()).filter(Boolean));
+  const years=[...new Set(ROWS.filter(r=>r.cat==='SELL').map(r=>String(r.time).slice(0,4)).filter(y=>/^\d{4}$/.test(y)))].sort();
+  const multiYear = new Set(ROWS.map(r=>String(r.time).slice(0,4))).size > 1;
+  if (multiYear && years.length){
+    const thisYear=String(new Date().getFullYear()), prev=years.filter(y=>y<thisYear);
+    if (!years.includes(TAX_YEAR)) TAX_YEAR = prev.length ? prev[prev.length-1] : years[years.length-1];
+    $('taxYear').innerHTML = years.slice().reverse().map(y=>`<option value="${y}" ${y===TAX_YEAR?'selected':''}>${y}년${y===thisYear?' (진행 중)':''}</option>`).join('');
+    $('yearRow').classList.remove('hidden');
+  } else { TAX_YEAR=''; $('yearRow').classList.add('hidden'); }
+  $('loadInfo').textContent = `${notes.join(' · ')} → 합계 ${ROWS.length.toLocaleString()}건 (업로드 없음, 이 탭 메모리에서만 처리)`;
   $('engineName').textContent = `· ${ENGINE.name} v${ENGINE.version}${AI.ok ? ' + 로컬 AI('+AI.model+')' : ''}`;
   ['secClassify','secTax','secIssue'].forEach(id=>$(id).classList.remove('hidden'));
   $('issueOut').classList.add('hidden'); CERT=null;
@@ -483,12 +586,18 @@ function refresh(){
   renderClass(); renderTax();
   if (CERT){ $('issueOut').classList.add('hidden'); CERT=null; $('recordOut').textContent=''; }
 }
+function shownRows(){
+  const sc=$('showScope').value;
+  if (!TAX_YEAR || sc==='all') return ROWS;
+  if (sc==='flag') return ROWS.filter(r=>r.flag);
+  return ROWS.filter(r=>String(r.time).startsWith(TAX_YEAR));
+}
 function renderClass(){
   const opts = r => r.ask
     ? `<select data-id="${r.id}">${(r.t==='OUT'?['UNKNOWN_OUT','XFER_OUT']:['UNKNOWN_IN','IN_MARKET']).map(k=>`<option value="${k}" ${k===r.cat?'selected':''}>${CAT[k].label}</option>`).join('')}</select>`
     : `<span class="tag ${CAT[r.cat].cls}">${CAT[r.cat].label}</span>`;
   $('tblClass').innerHTML = `<tr><th>#</th><th>일시</th><th>거래소</th><th>원본 유형</th><th>코인</th><th class="num">수량</th><th>분류 결과</th><th class="num">확신도</th><th>판단 근거</th><th></th></tr>` +
-    ROWS.map(r=>`<tr class="${r.flag?'flag':''}"><td>${r.id}</td><td>${esc(r.time)}</td><td>${esc(r.exchange)}</td><td>${esc(r.raw)}</td><td>${esc(r.asset)}</td><td class="num">${r.qty}</td><td>${opts(r)}</td><td class="num conf">${Math.round(r.conf*100)}%</td><td class="reason">${esc(r.reason)}${r.ai?`<div style="margin-top:4px;color:var(--ink)">🤖 ${esc(r.ai)}</div>`:''}</td><td>${r.flag?`<button class="b" data-ai="${r.id}" style="padding:4px 10px;font-size:12px">AI 의견</button>`:''}</td></tr>`).join('');
+    shownRows().map(r=>`<tr class="${r.flag?'flag':''}"><td>${r.id}</td><td>${esc(r.time)}</td><td>${esc(r.exchange)}</td><td>${esc(r.raw)}</td><td>${esc(r.asset)}</td><td class="num">${r.qty}</td><td>${opts(r)}</td><td class="num conf">${Math.round(r.conf*100)}%</td><td class="reason">${esc(r.reason)}${r.ai?`<div style="margin-top:4px;color:var(--ink)">🤖 ${esc(r.ai)}</div>`:''}</td><td>${r.flag?`<button class="b" data-ai="${r.id}" style="padding:4px 10px;font-size:12px">AI 의견</button>`:''}</td></tr>`).join('');
   $('tblClass').querySelectorAll('select').forEach(s=>s.onchange=()=>{ const r=ROWS.find(x=>x.id==s.dataset.id); r.cat=s.value;
     if (r.cat==='IN_MARKET'){ r.flag=false; r.conf=1; r.reason=`본인 확인: 다른 곳에서 보유하던 코인을 옮김. 취득가 = 입금일 시가(${fmt(r.price)}원) 적용.`; }
     else if (r.cat==='XFER_OUT'){ r.flag=false; r.conf=1; r.reason='본인 확인: 내 개인 지갑으로 옮김. 과세 거래 아님, 취득가 그대로 이전.'; }
@@ -505,7 +614,7 @@ function renderTax(){
   ].map(([k,v])=>`<div class="kpi"><div class="k">${k}</div><div class="v">${fmt(v)}원</div></div>`).join('') +
     `<div class="kpi main"><div class="k">예상 세액 (22%)</div><div class="v">${fmt(s.tax)}원</div></div>`;
   $('tblGains').innerHTML = `<tr><th>일시</th><th>거래소</th><th>코인</th><th class="num">양도가액</th><th class="num">취득가액</th><th class="num">손익</th></tr>` +
-    ROWS.filter(r=>r.cat==='SELL').map(r=>`<tr><td>${esc(r.time.slice(0,10))}</td><td>${esc(r.exchange)}</td><td>${esc(r.asset)}</td><td class="num">${fmt(r.proceeds)}</td><td class="num">${fmt(r.cost)}</td><td class="num ${r.gain>=0?'pos':'neg'}">${fmt(r.gain)}</td></tr>`).join('');
+    ROWS.filter(r=>r.cat==='SELL' && (!TAX_YEAR || String(r.time).startsWith(TAX_YEAR))).map(r=>`<tr><td>${esc(r.time.slice(0,10))}</td><td>${esc(r.exchange)}</td><td>${esc(r.asset)}</td><td class="num">${fmt(r.proceeds)}</td><td class="num">${fmt(r.cost)}</td><td class="num ${r.gain>=0?'pos':'neg'}">${fmt(r.gain)}</td></tr>`).join('');
   $('tblHold').innerHTML = `<tr><th>보관처</th><th>코인</th><th class="num">수량</th><th class="num">취득가 합계</th><th>방식</th></tr>` +
     s.holdings.map(h=>`<tr><td>${esc(h.venue)}</td><td>${esc(h.asset)}</td><td class="num">${+h.qty.toFixed(6)}</td><td class="num">${fmt(h.cost)}</td><td>${h.method==='avg'?'이동평균':'선입선출'}</td></tr>`).join('');
 }
@@ -573,6 +682,69 @@ function renderLedger(){
   $('tblLedger').innerHTML = `<tr><th>블록</th><th>시각</th><th>망</th><th>증명서 지문</th><th>앞 블록 연결</th></tr>` +
     (c.length ? c.slice().reverse().map(b=>`<tr><td>#${b.height}</td><td>${new Date(b.time).toLocaleString('ko-KR')}</td><td>${b.network==='sepolia'?'Sepolia':'데모'}</td><td>${b.certHash}</td><td>${b.prev.slice(0,12)}…</td></tr>`).join('')
       : `<tr><td colspan="5" style="font-family:inherit;color:var(--muted)">아직 기록이 없습니다.</td></tr>`);
+}
+
+/* ---------- 업비트 API (조회 전용, 로컬 서버가 서명해 중계) ---------- */
+const UP = { calls:0, busy:false };
+const UP_ERR = { no_authorization_ip:'이 PC의 IP가 키에 등록되지 않았습니다 (Open API 관리에서 IP 추가)', invalid_access_key:'Access Key가 틀렸습니다',
+  jwt_verification:'Secret Key가 틀렸습니다', expired_access_key:'만료된 키입니다', out_of_scope:'키 권한이 부족합니다 (자산·주문·입출금 조회 체크)', invalid_query_payload:'요청 형식 오류' };
+async function upbit(path, params){
+  if (location.protocol==='file:') throw new Error('API 연동은 시연앱_실행.cmd(로컬 서버)로 열었을 때만 됩니다');
+  const r = await _fetch('/api/upbit', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ access:$('upA').value, secret:$('upS').value, path, params }) });
+  let j; try { j = await r.json(); } catch { throw new Error('로컬 서버가 응답하지 않습니다 (시연앱_실행.cmd로 다시 켜 주세요)'); }
+  if (j.error) throw new Error(j.error);
+  UP.calls++; renderNet();
+  if (j.status !== 200){ const e=j.body && j.body.error || {}; throw new Error(UP_ERR[e.name] || e.message || ('업비트 응답 '+j.status)); }
+  const m = /sec=(\d+)/.exec(j.remaining||''); if (m && +m[1] <= 1) await new Promise(r=>setTimeout(r, 1000));   // 초당 한도 근접 시 쉬기
+  return j.body;
+}
+const kst = iso => String(iso||'').slice(0,19).replace('T',' ');
+const csvCell = v => /[",\n]/.test(String(v)) ? '"'+String(v).replace(/"/g,'""')+'"' : String(v);
+async function upbitTest(){
+  const out=$('apiOut');
+  try { out.textContent='연결 확인 중…'; const acc=await upbit('/v1/accounts'); out.textContent=`✅ 연결됨 · 보유 자산 ${acc.length}종 확인 (잔고 숫자는 화면에 표시하지 않음)`; }
+  catch(e){ out.textContent='❌ '+e.message; }
+}
+async function upbitImport(){
+  if (UP.busy) return; UP.busy=true; const out=$('apiOut'), btn=$('btnUpLoad'); btn.disabled=true;
+  const lines=['일시,거래소,구분,원본유형,코인,수량,단가(원),수수료(원),상대방(주소·메모)'], push=a=>lines.push(a.map(csvCell).join(','));
+  let nOrd=0, nIo=0, skipped=0; const seen=new Set();
+  try {
+    // 1) 입출금 (페이지 단위)
+    for (const [path, raw] of [['/v1/deposits','입금'], ['/v1/withdraws','출금']]){
+      for (let page=1; page<=200; page++){
+        out.textContent=`${raw} 내역 받는 중… ${page}쪽`;
+        const list = await upbit(path, { limit:100, page, order_by:'asc' });
+        for (const d of list){
+          if (d.currency==='KRW' || !['ACCEPTED','DONE'].includes(String(d.state).toUpperCase())){ skipped++; continue; }
+          push([kst(d.done_at||d.created_at), '업비트', '국내', raw, d.currency, d.amount, 0, 0, d.transaction_type==='internal'?'업비트 내부 이체':(d.txid?'txid '+String(d.txid).slice(0,12):'')]); nIo++;
+        }
+        if (list.length < 100) break;
+      }
+    }
+    // 2) 체결된 주문 (업비트는 한 번에 7일 범위까지만 조회 가능)
+    const fromY = Math.max(2017, Math.min(new Date().getFullYear(), parseInt($('upFrom').value)||2017));
+    let t = Date.UTC(fromY,0,1) - 9*3600e3; const end = Date.now(), WEEK = 7*864e5, total = Math.ceil((end-t)/WEEK);
+    for (let w=1; t<end; w++, t+=WEEK){
+      out.textContent=`체결 내역 받는 중… ${w}/${total}주 (${kst(new Date(t+9*3600e3).toISOString()).slice(0,10)}) · 지금까지 ${nOrd}건`;
+      const list = await upbit('/v1/orders/closed', { states:['done','cancel'], start_time:new Date(t).toISOString().slice(0,19)+'Z', end_time:new Date(Math.min(t+WEEK,end)).toISOString().slice(0,19)+'Z', limit:1000, order_by:'asc' });
+      for (const o of list){
+        if (seen.has(o.uuid)) continue; seen.add(o.uuid);   // 7일 구간 경계에 걸친 주문 중복 방지
+        const vol=+o.executed_volume||0; if (!vol){ continue; }
+        const [quote, asset] = String(o.market).split('-');
+        if (quote!=='KRW'){ skipped++; continue; }   // BTC·USDT 마켓은 원화 환산 시세가 없어 제외
+        let funds = o.executed_funds!=null ? +o.executed_funds : null;
+        if (funds==null && o.ord_type==='limit') funds = +o.price*vol;
+        if (funds==null){ const d = await upbit('/v1/order', { uuid:o.uuid }); funds = (d.trades||[]).reduce((a,x)=>a+(+x.funds||0),0); }
+        push([kst(o.created_at), '업비트', '국내', o.side==='bid'?'매수':'매도', asset, vol, funds/vol, +o.paid_fee||0, '']); nOrd++;
+      }
+    }
+    out.textContent=`✅ 업비트에서 체결 ${nOrd}건 · 코인 입출금 ${nIo}건을 받아왔습니다${skipped?` (원화 입출금·BTC마켓 등 ${skipped}건 제외)`:''}. 이제 인터넷을 끊어도 됩니다.`;
+    const others = LAST.files.filter(f=>!/^\uFEFF?event_at/.test(f.text) && f.name!=='업비트 API');   // 업비트 CSV와 중복 방지
+    loadFiles([...others, { name:'업비트 API', text: lines.join('\n') }]);
+  } catch(e){ out.textContent='❌ '+e.message+(nOrd||nIo?` (그 전까지 ${nOrd+nIo}건 받음)`:''); }
+  finally { UP.busy=false; btn.disabled=false; }
 }
 
 /* ---------- 영지식 범위 증명서 발급 ---------- */
@@ -672,9 +844,12 @@ async function askAI(id, btn){
 function switchTab(t){ document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on',b.dataset.tab===t)); ['owner','verify','chain'].forEach(x=>$('tab-'+x).classList.toggle('hidden',x!==t)); if(t==='chain') renderLedger(); }
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
 $('btnSample').onclick=()=>load(SAMPLE_CSV,'샘플: 내_코인_거래내역_2025.csv');
-$('fileCsv').onchange=e=>{ const f=e.target.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=()=>{ const buf=new Uint8Array(rd.result); let txt; try { txt=new TextDecoder('utf-8',{fatal:true}).decode(buf); } catch { txt=new TextDecoder('euc-kr').decode(buf); } load(txt,f.name); }; rd.readAsArrayBuffer(f); };
-$('myWallets').onchange=()=>{ if(LAST.text) load(LAST.text, LAST.name+' (지갑 목록 반영해 다시 분류)'); };
-$('btnIssue').onclick=issue; $('btnZk').onclick=issueZK;
+const readText = f => new Promise(res=>{ const rd=new FileReader(); rd.onload=()=>{ const buf=new Uint8Array(rd.result); let txt; try { txt=new TextDecoder('utf-8',{fatal:true}).decode(buf); } catch { txt=new TextDecoder('euc-kr').decode(buf); } res({text:txt, name:f.name}); }; rd.readAsArrayBuffer(f); });
+$('fileCsv').onchange=async e=>{ const fs=[...e.target.files]; if(!fs.length) return; loadFiles(await Promise.all(fs.map(readText))); e.target.value=''; };
+$('myWallets').onchange=()=>{ if(LAST.files.length) loadFiles(LAST.files, true); };
+$('taxYear').onchange=()=>{ TAX_YEAR=$('taxYear').value; refresh(); };
+$('showScope').onchange=()=>renderClass();
+$('btnIssue').onclick=issue; $('btnUpTest').onclick=upbitTest; $('btnUpLoad').onclick=upbitImport; $('btnZk').onclick=issueZK;
 $('btnRecordDemo').onclick=recordDemo; $('btnRecordSepolia').onclick=recordSepolia;
 const dl=(obj,name)=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(obj,null,2)],{type:'application/json'})); a.download=name; a.click(); };
 $('btnDlCert').onclick=()=>dl(CERT,`CoinProof_요약증명서_${SUMMARY.year}.json`);
